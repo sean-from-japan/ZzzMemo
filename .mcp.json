@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "zzzmemo": {
+      "command": "C:/Users/seann/AppData/Local/Programs/Python/Python313/python.exe",
+      "args": ["C:/dev/ZzzMemo/mcp_server.py"]
+    }
+  }
+}
