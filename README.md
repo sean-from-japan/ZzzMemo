@@ -6,6 +6,8 @@
 
 > 🌐 **Live demo**: [zzzmemo.fly.dev](https://zzzmemo.fly.dev)
 
+![Dashboard with sample tasks: each task shows its category, due date and priority](docs/dashboard-sample.png)
+
 ---
 
 ## What is this?
