@@ -23,7 +23,9 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   // API リクエストは常にネットワークへ
-  if (event.request.url.includes('/api/')) {
+  // v2 is under development: always fetch it fresh
+  const path = new URL(event.request.url).pathname;
+  if (event.request.url.includes('/api/') || path === '/v2' || path.startsWith('/v2/')) {
     event.respondWith(fetch(event.request));
     return;
   }

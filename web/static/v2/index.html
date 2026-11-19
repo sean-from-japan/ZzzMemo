@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b0b" media="(prefers-color-scheme: dark)">
+<title>ZzzMemo</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/static/icon-192.png">
+<style>
+/* Same palette as the author's other local apps, light and dark. */
+:root{
+  --bg:#ffffff;--side:#f7f7f8;--raise:#f0f0f2;--fg:#111111;--muted:#5c5c5c;--faint:#8f8f8f;--line:#e4e4e7;
+  --accent:#1a5fd0;--on-accent:#ffffff;--accent-soft:#e8f0fc;--crit:#c4202c;--crit-soft:#fde9eb;--warn:#a65c00;--warn-soft:#fff1db;--ok:#24773f;--ok-soft:#e4f4e9;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.06);
+  --hero:radial-gradient(1200px 400px at 50% -120px,#e8f0fc 0%,rgba(232,240,252,0) 70%);
+  --sans:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b0b0b;--side:#131313;--raise:#1c1c1c;--fg:#f2f2f2;--muted:#a8a8a8;--faint:#777777;--line:#2a2a2a;
+  --accent:#7fb0ff;--on-accent:#0b0b0b;--accent-soft:#14233b;--crit:#ff7b86;--crit-soft:#3a1418;--warn:#f5b553;--warn-soft:#33240b;--ok:#7fd49c;--ok-soft:#10291a;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  --hero:radial-gradient(1200px 400px at 50% -120px,#14233b 0%,rgba(20,35,59,0) 70%);
+  color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0b0b0b;--side:#131313;--raise:#1c1c1c;--fg:#f2f2f2;--muted:#a8a8a8;--faint:#777777;--line:#2a2a2a;
+  --accent:#7fb0ff;--on-accent:#0b0b0b;--accent-soft:#14233b;--crit:#ff7b86;--crit-soft:#3a1418;--warn:#f5b553;--warn-soft:#33240b;--ok:#7fd49c;--ok-soft:#10291a;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  --hero:radial-gradient(1200px 400px at 50% -120px,#14233b 0%,rgba(20,35,59,0) 70%);
+  color-scheme:dark;}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--fg)}
+body{font:15px/1.65 var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent);text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+@media (max-width:640px){.wrap{padding:0 16px}}
+
+/* Top bar */
+header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+header.top .wrap{display:flex;align-items:center;gap:16px;height:56px}
+.brand{font-weight:800;letter-spacing:.01em;font-size:1.05rem;color:var(--fg);text-decoration:none;display:flex;align-items:center;gap:8px}
+.brand i{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,var(--accent),#6d8ff0);display:inline-block}
+.seg{margin-left:auto;display:flex;gap:2px;padding:3px;background:var(--raise);border-radius:999px}
+.seg a{padding:6px 16px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:.9rem;font-weight:600;white-space:nowrap}
+.seg a.on{background:var(--bg);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+@media (max-width:420px){.brand span{display:none}.seg{margin-left:auto}.seg a{padding:6px 13px}}
+.badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:5px;border-radius:9px;background:var(--crit);color:#fff;font-size:11px;line-height:18px;vertical-align:1px;text-align:center}
+.badge:empty{display:none}
+
+section.view{display:none}
+section.view.on{display:block}
+
+/* Hero: the one thing done every day is writing a line */
+.hero{background:var(--hero);padding:56px 0 36px;text-align:center}
+@media (max-width:640px){.hero{padding:32px 0 24px}}
+.hero .date{font-size:.95rem;color:var(--muted);font-weight:600;letter-spacing:.04em}
+.hero h1{font-size:clamp(1.45rem,6.2vw,2.8rem);line-height:1.25;margin:6px 0 24px;font-weight:800;letter-spacing:-.01em;text-wrap:balance}
+.capture{max-width:720px;margin:0 auto;display:flex;align-items:flex-end;gap:8px;padding:8px;background:var(--bg);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);text-align:left}
+.capture:focus-within{border-color:var(--accent)}
+.capture textarea{flex:1;resize:none;border:0;background:transparent;padding:10px 10px;min-height:44px;max-height:40vh;line-height:1.55;font-size:1.05rem;outline:none}
+.hint{margin-top:12px;font-size:.82rem;color:var(--faint)}
+
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:0 16px;min-height:44px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--raise)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{filter:brightness(1.08);background:var(--accent)}
+.btn.danger{color:var(--crit)}
+.btn.small{min-height:34px;padding:0 12px;font-size:.85rem;border-radius:10px}
+
+/* Content grid */
+.grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:24px;padding-top:12px;padding-bottom:64px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--bg);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.panel+.panel{margin-top:24px}
+.panel-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.panel-head h2{font-size:.95rem;margin:0;font-weight:700}
+.panel-head .count{color:var(--faint);font-size:.85rem;font-variant-numeric:tabular-nums}
+.panel-head .tools{margin-left:auto;display:flex;align-items:center;gap:2px}
+.icon-btn{background:none;border:0;color:var(--muted);min-width:36px;min-height:36px;border-radius:10px;cursor:pointer;font-size:1.05rem}
+.icon-btn:hover{background:var(--raise);color:var(--fg)}
+.icon-btn:disabled{opacity:.3;cursor:default;background:none}
+.panel-head .today-link{font-size:.82rem;margin-right:4px}
+
+ul.rows{list-style:none;margin:0;padding:0}
+.row{display:flex;align-items:flex-start;gap:12px;padding:12px 18px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .main{flex:1;min-width:0;overflow-wrap:anywhere}
+.row .sub{font-size:.8rem;color:var(--muted);margin-top:2px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.row.is-done .title{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--line)}
+.row .open{cursor:pointer}
+.row .open:hover .title{color:var(--accent)}
+.check{appearance:none;-webkit-appearance:none;width:20px;height:20px;border:1.5px solid var(--faint);border-radius:50%;margin:2px 0 0;flex-shrink:0;cursor:pointer;display:grid;place-content:center}
+.check:checked{background:var(--ok);border-color:var(--ok)}
+.check:checked::after{content:"";width:9px;height:5px;border:2px solid #fff;border-top:0;border-right:0;transform:rotate(-45deg) translate(1px,-1px)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:9px;flex-shrink:0}
+.dot.done{background:transparent;border:1.5px solid var(--faint)}
+.dot.review{background:var(--warn)}
+.tag{display:inline-block;font-size:.72rem;font-weight:600;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.plain{background:var(--raise);color:var(--muted)}
+.due{font-variant-numeric:tabular-nums}
+.due.over{color:var(--crit);font-weight:700}
+.due.soon{color:var(--warn);font-weight:700}
+.more{background:none;border:0;color:var(--faint);min-width:32px;min-height:32px;border-radius:8px;cursor:pointer;font-size:1.1rem;line-height:1}
+.more:hover{background:var(--raise);color:var(--fg)}
+.menu{display:flex;gap:6px;margin-top:8px}
+.empty{color:var(--faint);font-size:.9rem;padding:18px;text-align:center}
+.edit-line{display:flex;gap:6px;flex:1}
+.edit-line input{flex:1;min-width:0;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+
+/* List view */
+.page-head{padding:40px 0 8px}
+.page-head h1{font-size:clamp(1.6rem,4vw,2.2rem);margin:0;font-weight:800;letter-spacing:-.01em}
+.page-head p{margin:4px 0 0;color:var(--muted)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:16px 0 4px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chips button{flex-shrink:0;border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:7px 16px;cursor:pointer;font-weight:600;color:var(--muted)}
+.chips button.on{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.add{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--side)}
+.add input{flex:1;min-width:0;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.toggle{display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--muted);cursor:pointer}
+.toggle input{accent-color:var(--accent)}
+.list-wrap{padding:16px 0 64px}
+
+/* Review view */
+.review-grid{display:grid;gap:24px;padding:16px 0 64px}
+.card{padding:16px 18px;border-top:1px solid var(--line)}
+.card:first-child{border-top:0}
+.card .name{font-weight:700;font-size:1.02rem}
+.card .fields{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.card .actions{display:flex;gap:8px;margin-top:12px}
+footer{padding:8px 0 40px;font-size:.82rem;color:var(--faint);display:flex;gap:18px}
+footer a{color:var(--faint)}
+
+/* Item sheet */
+dialog{border:1px solid var(--line);border-radius:20px;padding:0;background:var(--bg);color:var(--fg);width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 40px);margin:auto;box-shadow:0 24px 64px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(10,10,15,.45);backdrop-filter:blur(2px)}
+dialog form{padding:22px 20px 18px}
+dialog .sheet-head{display:flex;align-items:center;justify-content:space-between;margin:-6px -6px 12px 0}
+dialog h3{margin:0;font-size:1.05rem}
+.field{display:block;margin-bottom:14px}
+.field>span{display:block;font-size:.78rem;color:var(--muted);margin-bottom:5px;font-weight:600}
+.field input:not([type=checkbox]),.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--side)}
+.field input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.field textarea{min-height:96px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:480px){.two{grid-template-columns:1fr}}
+.sheet-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.sheet-actions .spacer{flex:1}
+
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 18px;border-radius:12px;font-size:.9rem;max-width:calc(100vw - 32px);display:none;z-index:50;box-shadow:var(--shadow)}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="#today"><i aria-hidden="true"></i><span>ZzzMemo</span></a>
+  <nav class="seg" aria-label="画面">
+    <a href="#today" data-tab="today">今日</a>
+    <a href="#list" data-tab="list">一覧</a>
+    <a href="#review" data-tab="review">確認<span class="badge" id="review-badge"></span></a>
+  </nav>
+</div></header>
+
+<main>
+  <section class="view" id="today">
+    <div class="hero"><div class="wrap">
+      <div class="date" id="hero-date"></div>
+      <h1>いま、何を考えていますか。</h1>
+      <form class="capture" id="capture">
+        <textarea id="capture-text" rows="1" placeholder="1行に1つ書く" aria-label="メモを書く" enterkeyhint="send"></textarea>
+        <button class="btn primary" type="submit">追加</button>
+      </form>
+      <div class="hint">仕分けはあとでエージェントが行います。Shift+Enterで改行、複数行は1行ずつ入ります。</div>
+    </div></div>
+
+    <div class="wrap grid">
+      <div class="panel">
+        <div class="panel-head">
+          <h2 id="day-label"></h2><span class="count" id="entries-count"></span>
+          <div class="tools">
+            <a href="#today" class="today-link" id="day-today" hidden>今日へ</a>
+            <button type="button" class="icon-btn" id="day-prev" aria-label="前の日">‹</button>
+            <button type="button" class="icon-btn" id="day-next" aria-label="次の日">›</button>
+          </div>
+        </div>
+        <ul class="rows" id="entries"></ul>
+      </div>
+      <div>
+        <div class="panel">
+          <div class="panel-head"><h2>期日が近いもの</h2><span class="count" id="due-count"></span></div>
+          <ul class="rows" id="due-soon"></ul>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>未完了のタスク</h2><span class="count" id="tasks-count"></span></div>
+          <ul class="rows" id="open-tasks"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="list">
+    <div class="wrap">
+      <div class="page-head">
+        <h1 id="list-title">一覧</h1>
+        <p id="list-sub"></p>
+      </div>
+      <div class="chips" id="kind-tabs"></div>
+      <div class="list-wrap">
+        <div class="panel">
+          <form class="add" id="add-item">
+            <input id="add-item-title" placeholder="ここに直接追加" aria-label="項目を追加">
+            <button class="btn" type="submit">追加</button>
+          </form>
+          <div class="panel-head">
+            <h2>未完了</h2><span class="count" id="items-count"></span>
+            <div class="tools"><label class="toggle"><input type="checkbox" id="show-done"> 完了も表示</label></div>
+          </div>
+          <ul class="rows" id="items"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="review">
+    <div class="wrap">
+      <div class="page-head">
+        <h1>確認</h1>
+        <p>エージェントが本人の判断を待っているものと、最近の変更です。</p>
+      </div>
+      <div class="review-grid">
+        <div class="panel">
+          <div class="panel-head"><h2>追加したい種類</h2><span class="count" id="proposed-count"></span></div>
+          <div id="proposed"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>判断を求めているメモ</h2><span class="count" id="review-count"></span></div>
+          <ul class="rows" id="review-entries"></ul>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>最近の変更</h2></div>
+          <ul class="rows" id="log"></ul>
+        </div>
+      </div>
+      <footer><a href="/">旧画面</a><a href="/logout">ログアウト</a></footer>
+    </div>
+  </section>
+</main>
+
+<dialog id="sheet">
+  <form method="dialog" id="sheet-form">
+    <div class="sheet-head"><h3 id="sheet-heading">詳細</h3><button class="icon-btn" value="cancel" formnovalidate aria-label="閉じる">✕</button></div>
+    <label class="field"><span>題名</span><input name="title" required></label>
+    <div class="two">
+      <label class="field"><span>種類</span><select name="kind" id="sheet-kind"></select></label>
+      <label class="field"><span>期日</span><input name="due" type="datetime-local"></label>
+    </div>
+    <div id="sheet-fields"></div>
+    <label class="field"><span>メモ</span><textarea name="body"></textarea></label>
+    <div class="sheet-actions">
+      <button class="btn primary" value="save">保存</button>
+      <button class="btn" value="toggle" id="sheet-toggle">完了にする</button>
+      <span class="spacer"></span>
+      <button class="btn danger" value="trash" id="sheet-trash">ゴミ箱へ</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="/v2/app.js"></script>
+</body>
+</html>
