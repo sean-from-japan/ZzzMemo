@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from core import storage
+from core import db, storage
 from core.storage import (
     check_recurring,
     promote_longterm_tasks,
@@ -35,6 +35,7 @@ from web.routers import (
     recurring,
     sync,
     tasks,
+    v2,
 )
 
 # localhost HTTP で OAuth2 を通すために必要（本番環境では設定しない）
@@ -216,6 +217,7 @@ async def lifespan(app: FastAPI):
         secret_path.write_text(_secret_json, encoding="utf-8")
 
     deps.app_data, stats = storage.initialize()
+    db.init()
     promoted = promote_longterm_tasks(deps.app_data)
     if promoted:
         save_data(deps.app_data)
@@ -319,6 +321,22 @@ def index():
     return FileResponse(str(_STATIC_DIR / "index.html"))
 
 
+# v2 pages are revalidated on every load so a deploy shows up without a hard reload
+_NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+@app.get("/v2", response_class=FileResponse)
+def index_v2():
+    return FileResponse(str(_STATIC_DIR / "v2" / "index.html"), headers=_NO_CACHE)
+
+
+@app.get("/v2/app.js", response_class=FileResponse)
+def app_js_v2():
+    return FileResponse(
+        str(_STATIC_DIR / "v2" / "app.js"), media_type="text/javascript", headers=_NO_CACHE
+    )
+
+
 @app.get("/manifest.json")
 def manifest():
     return FileResponse(
@@ -338,6 +356,7 @@ def service_worker():
 # ── ルーター登録 ──────────────────────────────────────────────────────────────
 
 app.include_router(tasks.router)
+app.include_router(v2.router)
 app.include_router(recurring.router)
 app.include_router(checklists.router)
 app.include_router(chat.router)
