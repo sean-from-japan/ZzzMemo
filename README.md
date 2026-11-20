@@ -1,173 +1,116 @@
+**English** | [日本語](README.ja.md)
+
 # ZzzMemo
 
-**English** | [日本語概要](README.ja.md)
+**A personal notebook built for AI agents.** You write one line at a time. Later, an AI agent (Claude Code, Codex, or any MCP client) reads the unsorted lines and files them as tasks, notes or wish-list items. The app itself contains no LLM.
 
-**AI-powered personal task manager** — chat with your tasks, sync with Google Calendar, and study English from your daily life.
-
-> 🌐 **Live demo**: [zzzmemo.fly.dev](https://zzzmemo.fly.dev)
-
-![Dashboard with sample tasks: each task shows its category, due date and priority](docs/dashboard-sample.png)
+![The Today screen: a large capture box, today's lines with their sorting state, and tasks with due dates](docs/screenshot.png)
 
 ---
 
-## What is this?
+## Why it works this way
 
-ZzzMemo is a lightweight alternative to Notion — focused on **speed and AI integration** rather than complexity.
+The first version of ZzzMemo had Gemini built in and asked for a category, due date and priority for every task. Writing things down was easy; filing them was the chore that got skipped. Version 2 splits the work:
 
-- Type a task in natural language → AI sorts and schedules it
-- Chat to manage everything: "Add a meeting tomorrow at 3pm" → done
-- Write a diary → AI generates English practice questions from your day
-- Syncs with Google Calendar and Google Tasks automatically
+- **You** only write lines, as fast as in a paper notebook. No fields to fill in.
+- **An agent** sorts them later, in a batch, when you ask it to (for example a `/zzz` slash command in Claude Code). Nothing needs an LLM in real time, so the server holds no LLM API key.
+- **Kinds are data, not code.** タスク (tasks), メモ (notes), 欲しい物 (wish list) and チェックリスト exist by default. An agent can propose a new kind with its own fields; it becomes usable after you approve it in the app. The screens are generated from the kind definitions, so adding a kind changes no code.
+- **Every change can be undone.** Each write, by you or an agent, goes to a change log with the row before and after.
 
-Built with FastAPI + vanilla JS. Works as a PWA (installable on mobile).
+## Screens
 
----
-
-## Features
-
-### Task Management
-- **Status**: Inbox / Todo / Long-term / Done / Trash
-- **Priority**: High / Medium / Low
-- **Due dates**: date picker or natural language ("tomorrow", "next week")
-- Drag-and-drop ordering, recurring tasks (daily/weekly/monthly)
-- Checklists with deadlines
-
-### AI Chat (powered by Gemini)
-Talk to your task list in natural language:
-
-| Say | What happens |
+| Screen | What it is for |
 |---|---|
-| "What should I do today?" | AI analyzes tasks and advises priorities |
-| "Add buy milk to my list" | Task added |
-| "Mark the report as done" | Task completed |
-| "Change the deadline to Friday" | Due date updated |
-| "What's on my calendar today?" | Google Calendar events shown |
-| "Add a meeting tomorrow at 3pm" | Calendar event created with confirmation |
+| Today | The capture box and the lines written today (or any earlier day) with their state: new, sorted, or waiting for you. Items due within three days and open tasks. |
+| Lists | One list per kind, with an editor generated from the kind's fields. |
+| Review | Kinds proposed by agents (approve or reject), lines an agent could not decide, and the change log with undo buttons. |
 
-### Diary & Blog
-- Daily diary with autosave and date navigation
-- Blog post management with tags
-- AI suggestions: generates topics from completed tasks, or expands what you wrote
+It is a PWA, so it can be added to a phone's home screen. Light and dark themes follow the system.
 
-### English Learning
-- AI generates 3 practice questions from your completed tasks and diary
-- Write answers → get AI corrections
-- Corrections saved as flashcards (SM-2 spaced repetition)
-- Multi-turn discussion with AI tutor
+## What agents may do
 
-### Google Calendar / Tasks Sync
-- Push: ZzzMemo tasks with due dates → Google Calendar or Tasks
-- Pull: Completed Google Tasks → reflected in ZzzMemo
-- Auto-sync every 30 minutes in the background
+The server decides from how the request is authenticated, not from what the agent says about itself:
 
----
+| | You (browser session) | Agent (API key or `X-Actor` header) |
+|---|---|---|
+| Add lines and items, edit items | yes | yes |
+| Mark a line sorted or waiting | yes | yes |
+| Rewrite or delete a line you wrote | yes | no (403) |
+| Add a kind | yes | proposed only, until you approve |
+| Change or delete a kind | yes | no (403) |
+| Undo a change | yes | yes, except changes to kinds |
 
-## Quick Start (self-hosted)
+## Tools for agents
 
-### Requirements
-- Python 3.10+
-- Gemini API key (free tier: 1500 requests/day) → [Get one here](https://aistudio.google.com/app/apikey)
+`mcp_server.py` exposes 13 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server:
 
-### Install
+```bash
+python mcp_server.py list
+python mcp_server.py call list_unsorted '{}'
+python mcp_server.py call sort_entry '{"entry_id": "...", "kind": "タスク", "title": "Post the parcel", "due": "2026-11-21T10:00:00"}'
+```
+
+As an MCP server (`pip install mcp`; works with mcp 1.x and 2.x):
+
+```json
+{
+  "mcpServers": {
+    "zzzmemo": {
+      "command": "python",
+      "args": ["<path-to-repo>/mcp_server.py"],
+      "env": {"ZZZMEMO_BASE_URL": "https://<your-instance>", "ZZZMEMO_API_KEY": "<key>", "ZZZMEMO_ACTOR": "claude"}
+    }
+  }
+}
+```
+
+## API
+
+| Endpoint | |
+|---|---|
+| `GET/POST /api/entries`, `PATCH/DELETE /api/entries/{id}` | Lines. POST stores multi-line text as one entry per line. |
+| `GET/POST /api/kinds`, `PATCH/DELETE /api/kinds/{id}` | Kinds and their fields (text, date, choice, number, bool). |
+| `GET/POST /api/items`, `GET/PATCH /api/items/{id}` | Items. Field values are checked against the kind. |
+| `GET /api/today` | Today's lines, items due soon, open tasks, kinds awaiting approval. |
+| `GET /api/log`, `POST /api/log/{id}/undo` | Change log and undo. Undo is refused if the row changed again afterwards. |
+
+## Run it
+
+Python 3.10+.
 
 ```bash
 git clone https://github.com/sean-from-japan/ZzzMemo.git
 cd ZzzMemo
 pip install -r requirements.txt
+python qcatch.py          # http://localhost:5000, no login on localhost
+python -m pytest tests
 ```
 
-### Set API key
-
-**Windows (PowerShell):**
-```powershell
-[Environment]::SetEnvironmentVariable("GEMINI_API_KEY", "YOUR_KEY_HERE", "User")
-# Restart PowerShell to apply
-```
-
-**Mac/Linux:**
-```bash
-export GEMINI_API_KEY="YOUR_KEY_HERE"
-```
-
-### Run
-
-```bash
-python qcatch.py
-```
-
-Browser opens at `http://localhost:5000` automatically.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
+| Environment variable | |
 |---|---|
-| Backend | Python / FastAPI / uvicorn |
-| Frontend | Vanilla JS (ES modules, no framework) |
-| Database | SQLite |
-| AI | Gemini 2.5 Flash (Function Calling + streaming) |
-| Hosting | Fly.io |
-| Auth | Session cookies + Google OAuth2 |
+| `ZZZMEMO_USER`, `ZZZMEMO_PASS` | Password login |
+| `ZZZMEMO_GOOGLE_EMAIL`, `GOOGLE_CLIENT_SECRET_JSON`, `GOOGLE_REDIRECT_URI` | "Sign in with Google" for that one address. Google is asked for the email only. |
+| `ZZZMEMO_API_KEY` | Key for agents (`X-Api-Key`) |
+| `HOST`, `PORT` | Bind address. The server refuses to start on a non-loopback address with no login configured (`ZZZMEMO_ALLOW_NO_AUTH=1` overrides). |
 
----
+`Dockerfile` and `fly.toml` deploy it to Fly.io with the SQLite file on a volume. `migrate_v1.py` copies data from a version 1 database once.
 
-## AI Backend Options (for task sorting)
+## Stack
 
-| Backend | Cost | Setup |
-|---|---|---|
-| Gemini 2.5 Flash | Free tier available | Set `GEMINI_API_KEY` env var |
-| Ollama (local) | Free, offline | Install [Ollama](https://ollama.com), auto-detected |
-| Claude Haiku | Paid | Set `ANTHROPIC_API_KEY` env var |
-
----
-
-## Project Structure
+FastAPI and SQLite on the server; one HTML page and one JavaScript module, with no framework or build step, on the client.
 
 ```
 ZzzMemo/
-├── qcatch.py              # Entry point
-├── core/
-│   ├── models.py          # Data models
-│   ├── storage.py         # Read/write, migrations, SM-2
-│   ├── ai.py              # AI sort, tag suggestions
-│   ├── chat.py            # Chat + briefing (Function Calling)
-│   ├── writing.py         # Diary/blog AI suggestions
-│   ├── lang.py            # English practice & corrections
-│   └── google_sync.py     # Google Calendar/Tasks sync
-├── web/
-│   ├── server.py          # FastAPI app
-│   ├── deps.py            # Shared state
-│   └── routers/           # API routers
-└── web/static/
-    ├── index.html          # SPA
-    └── js/                 # ES modules (17 files)
+├── qcatch.py            # starts the server
+├── core/db.py           # entries, kinds, items, change log
+├── core/google_login.py # "Sign in with Google" (email check)
+├── web/server.py        # login, page, service worker
+├── web/routers/api.py   # REST API and who may do what
+├── web/static/          # index.html, app.js, manifest, sw.js
+├── mcp_server.py        # tools for agents (MCP server and CLI)
+├── migrate_v1.py        # one-time copy of version 1 data
+└── tests/
 ```
-
----
-
-## Troubleshooting
-
-**Port 5000 already in use:**
-
-Set the `PORT` environment variable (default is 5000):
-
-```bash
-# Mac/Linux
-PORT=5001 python qcatch.py
-```
-```powershell
-# Windows (PowerShell)
-$env:PORT=5001; python qcatch.py
-```
-
-**Google auth error:**
-Download `client_secret.json` from GCP Console → APIs & Services → Credentials → OAuth 2.0 Client IDs, and place it in the project root.
-
-**Gemini API 429 error:**
-Rate limit (15 req/min on free tier). No charges — just wait a moment and retry.
-
----
 
 ## License
 

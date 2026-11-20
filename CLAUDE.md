@@ -2,119 +2,43 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## このディレクトリについて
+## このリポジトリについて
 
-`C:\dev\ZzzMemo` — **qcatch / ZzzMemo**。元は単一ファイルの CLI だったが、現在は
-**FastAPI 製の Web ダッシュボード + 爆速キャプチャ CLI** に進化している。
-タスク管理を中心に、日記・ブログ・フラッシュカード・語学練習・AIチャット・
-Google Calendar/Tasks 連携を持つ個人向け生産性アプリ。
-
-- **独立した git リポジトリ**（remote: `sean-from-japan/ZzzMemo`）。
-  親の `C:\dev` も別の git リポジトリだが、ZzzMemo の作業はこのリポジトリ内で行う
-  （flashcard アプリ `C:\dev\remember` も別リポジトリ）。
-- **本番は Fly.io にデプロイ済み**（https://zzzmemo.fly.dev、region nrt、TZ=Asia/Tokyo）。
-- ローカルとサーバーで同じ `qcatch.py` が動く（no-arg で Web ダッシュボード起動）。
-
----
+ZzzMemo は、人が1行ずつ書き、AIエージェントが後から仕分ける個人用メモ帳。FastAPI + SQLite + 素のJavaScript。本番は Fly.io（https://zzzmemo.fly.dev、region nrt、TZ=Asia/Tokyo）。アプリの中にLLMは置かない。仕分けはエージェント側で行う。
 
 ## ファイル構成
 
 | パス | 役割 |
 |---|---|
-| `qcatch.py` | エントリポイント。`add` / `prompt` と Web ダッシュボード起動のみ（薄い） |
-| `core/` | ドメインロジック（Web から分離） |
-| `core/models.py` | Pydantic データモデル（Task / Checklist / Diary / Blog / FlashCard 等） |
-| `core/storage.py` | **SQLite 読み書き**・JSON→SQLite 移行・inbox 吸い上げ・定期/アーカイブ |
-| `core/ai.py` | sort バックエンド（Gemini / Ollama / Anthropic）・タグ/分割提案・few-shot |
-| `core/chat.py` | AIチャット（Gemini Function Calling） |
-| `core/google_sync.py` | Google Calendar / Tasks 連携（OAuth・push/pull・重複排除） |
-| `core/writing.py` `core/lang.py` | 日記/ブログ提案・語学練習のストリーム生成 |
-| `web/server.py` | FastAPI アプリ組み立て・認証ミドルウェア・lifespan・スケジューラ |
-| `web/deps.py` | 共有状態（`app_data`）・セッション認証・config 読み書き |
-| `web/routers/` | API エンドポイント（tasks / checklists / recurring / chat / diary / blog / flashcards / lang / sync / config） |
-| `web/static/` | SPA フロント（index.html + js/）+ PWA（manifest.json / sw.js / icons） |
-| `mcp_server.py` | MCP サーバー。本番 HTTP API 経由でタスク操作（AIエージェント用） |
-| `dedupe_calendar.py` | Google Calendar/Tasks の qcatch_id 重複イベント掃除ツール |
-| `data/qcatch.db` | **主データストア（SQLite, WAL）** |
-| `data/inbox.txt` | 未整理タスク（`add` で即追記 → 起動/GET 時に DB へ吸い上げ） |
-| `data/token.json` | Google OAuth トークン（コミット禁止） |
-| `data/*.json` `sorted_tasks.md` `done.txt` | 旧データ。初回のみ DB へ移行に使う（以後は読まれない） |
-| `Dockerfile` `fly.toml` | Fly.io デプロイ定義 |
-| `requirements.txt` | ローカル/ビルド用（win11toast・pyinstaller 等を含む） |
-| `requirements-prod.txt` | 本番 Web サーバー用（fastapi・uvicorn 等） |
-| `build.ps1` | exe ビルド + Windows Search ショートカット登録 |
-| `docs/spec_slides.py` | 仕様 PPTX 生成 |
-
----
+| `qcatch.py` | サーバー起動（Dockerfile の CMD） |
+| `core/db.py` | 保存処理。`entries`（書いた行）・`kinds`（種類と項目の定義）・`items`（仕分け後）・`change_log`（全変更、取り消し用） |
+| `core/google_login.py` | Googleでのログイン。メールアドレスの確認だけで、トークンは保存しない |
+| `web/server.py` | ログイン（パスワードとGoogle）、認証ミドルウェア、ページ、Service Worker |
+| `web/deps.py` | 認証の設定とセッショントークン |
+| `web/routers/api.py` | REST API と、本人／エージェントで許す操作の区別 |
+| `web/static/` | `index.html`（CSS込み）、`app.js`、`manifest.json`、`sw.js`（キャッシュしない） |
+| `mcp_server.py` | エージェント用の13ツール。引数なしでMCPサーバー、`call <tool> '<json>'` でCLI |
+| `migrate_v1.py` | 第1版の表から一度だけ移す（本番では2026-11-19に実行済み） |
+| `tests/` | `python -m pytest tests` |
 
 ## コマンド
 
 ```bash
-# ── ローカル実行 ──
-python qcatch.py                 # Web ダッシュボードを起動（http://localhost:5000 を開く）
-python qcatch.py add "タスク"     # inbox.txt に即追記（API通信・重いimportなし）
-python qcatch.py prompt          # ターミナル対話入力（add の代替）
-python qcatch.py toast           # 後方互換: 現在はダッシュボード起動にフォールバック
-
-# ── ビルド / ドキュメント ──
-.\build.ps1                      # exe ビルド + Windows Search 登録（PowerShell）
-python docs/spec_slides.py       # 仕様 PPTX を再生成
-
-# ── 本番デプロイ（Fly.io） ──
-fly deploy --app zzzmemo         # Dockerfile からビルドしてリリース
-fly logs --app zzzmemo           # 本番ログ
-fly secrets list --app zzzmemo   # シークレット名一覧（値は出ない）
+python qcatch.py                 # http://localhost:5000（loopback ではログイン不要）
+python -m pytest tests
+fly deploy --app zzzmemo
+fly logs --app zzzmemo
+fly secrets list --app zzzmemo   # 名前だけ出る
 ```
 
-> 分類（sort）・タスク操作・設定変更は **Web UI / REST API（`/api/sort` 等）** から行う。
-> 旧 CLI サブコマンド `list` / `sort` / `config` は廃止された。
+## 設計上の決まり
 
----
-
-## アーキテクチャ上の重要な判断
-
-### データストアは SQLite（旧「SQLite 化しない」方針は撤回済み）
-- 主ストアは `data/qcatch.db`（SQLite, WAL）。`core/storage.py` が一手に担う。
-- 起動時に DB が空なら旧 JSON（`tasks.json` 等）から一度だけ移行する。
-- `inbox.txt` は**爆速キャプチャ専用バッファ**として残置。`siphon_inbox()` が
-  起動時と `GET /api/tasks` 時に DB へ吸い上げてクリアする。
-- `sorted_tasks.md` / `done.txt` は初回移行（`migrate_from_existing`）でしか読まれない。
-  → これらに直接書いても UI には反映されない（過去にタグ付き add が消えるバグの原因）。
-
-### sort バックエンドの優先順位
-`qcatch_config.json` の `sort_backend`（`auto` / `ollama` / `gemini` / `anthropic`）で決まる。
-`auto` の場合: Ollama 起動中なら Ollama → `GEMINI_API_KEY` → `ANTHROPIC_API_KEY` の順。
-実装は `web/routers/tasks.py` の `_do_sort()` + `core/ai.py`。モデルは Gemini 2.5 Flash。
-
-### Google 同期は一方向（qcatch → Google）+ per-task フラグ
-- 各タスクの `calendar_sync=True` かつ `due_date` ありのものだけ Google に出す。
-- 時刻あり → Google Calendar イベント、00:00 → Google Tasks。
-- 同期は qcatch が source of truth。予定だけ Google 側で消してもタスクが残れば再同期で復活する。
-  消すならタスク自体を complete / `due_date` クリアする。
-- 重複防止のため `qcatch_id` を拡張プロパティ/notes に埋め、`dedupe_calendar.py` で掃除可能。
-
-### 認証（`web/deps.py`）
-- `ZZZMEMO_USER` + `ZZZMEMO_PASS`（パスワード）と `ZZZMEMO_GOOGLE_EMAIL`（Google ログイン）。
-- どちらも未設定ならローカル開発モード（認証スキップ）。
-- `ZZZMEMO_API_KEY`（`X-Api-Key`）は MCP / 外部連携用の内部 API キー。
-- セッショントークンは認証情報から決定論的に導出（サーバー側ストレージ不要）。
-
-### MCP は本番 HTTP API のバックエンド
-`mcp_server.py` は `https://zzzmemo.fly.dev` の REST API を `X-Api-Key` 認証で叩く。
-Google 資格情報を持つ本番サーバーが唯一の同期主体なので、エージェント経由で
-タスクを足しても重複イベントが出ない。設定は `.mcp.json`（Python 3.13 のフルパスを指定）。
-
----
-
-## 設計上の制約
-
-- **`add` は API 通信・重い import を絶対に増やさないこと**（待ち時間ゼロが絶対条件）。
-- **`data/` のファイルは削除・上書きしないこと**（`qcatch.db` に全学習/履歴データ）。
-  `token.json` は秘密情報なのでコミットも禁止。
-- **検証目的でもリポジトリ内で Web サーバーを起動しないこと**。`storage.initialize()` が
-  起動だけで inbox.txt 吸い上げ・DB 書込み・アーカイブを行い `data/` を変更してしまう。
-  動作確認は `core/ web/ qcatch.py qcatch_config.json` を一時ディレクトリにコピーし、
-  **空の `data/`**（token.json を入れない）で起動する（`PYTHONIOENCODING=utf-8` 必須）。
-- **Fly.io では `fly secrets` が `fly.toml` の `[env]` を上書きする**（同名キー）。
-- **本番コンテナは TZ=Asia/Tokyo**（naive `datetime.now()` の「今日」境界が JST 基準）。
-- コミット/プッシュは明示的に求められた時のみ。`--no-verify` は使わない。
+- **本人とエージェントの区別はサーバーで行う。** `X-Api-Key` か `X-Actor` が付いた要求はエージェント。エージェントは種類を「確認待ち」でしか追加できず、種類の変更・削除、本人が書いた行の書き換え・削除はできない（403）。`X-Actor: human` を名乗っても本人扱いにしない
+- **書き込みは必ず `core/db.py` の `_write` を通す。** 変更前と変更後が `change_log` に残り、取り消せる。取り消しは、その後に同じ行が変わっていれば断る
+- **種類はデータ。** 画面とAPIの検査は `kinds.fields` の定義から作る。種類ごとのコードを足さない
+- **認証なしで外部に公開しない。** `deps.assert_auth_configured()` が、loopback 以外の HOST でログイン設定が無いと起動を止める
+- **ページと `app.js` は `Cache-Control: no-cache`。** `sw.js` は古いキャッシュを消すだけで、何もキャッシュしない
+- `data/` のファイルは消さない・上書きしない（本番データ、退避したDB）。テストは一時ファイルのDBで行い、リポジトリの中でサーバーを起動して `data/` を変えない
+- 公開リポジトリなので、テストや例文に作者の実際のメモ・予定・個人の情報を入れない
+- Fly.io では `fly secrets` が `fly.toml` の `[env]` を上書きする（同名キー）
+- コミット・プッシュは明示的に求められたときだけ。`--no-verify` は使わない
