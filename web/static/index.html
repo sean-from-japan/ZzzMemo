@@ -59,8 +59,7 @@ section.view.on{display:block}
 /* Hero: the one thing done every day is writing a line */
 .hero{background:var(--hero);padding:56px 0 36px;text-align:center}
 @media (max-width:640px){.hero{padding:32px 0 24px}}
-.hero .date{font-size:.95rem;color:var(--muted);font-weight:600;letter-spacing:.04em}
-.hero h1{font-size:clamp(1.45rem,6.2vw,2.8rem);line-height:1.25;margin:6px 0 24px;font-weight:800;letter-spacing:-.01em;text-wrap:balance}
+.hero .date{font-size:.95rem;color:var(--muted);font-weight:600;letter-spacing:.04em;margin-bottom:14px}
 .capture{max-width:720px;margin:0 auto;display:flex;align-items:flex-end;gap:8px;padding:8px;background:var(--bg);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);text-align:left}
 .capture:focus-within{border-color:var(--accent)}
 .capture textarea{flex:1;resize:none;border:0;background:transparent;padding:10px 10px;min-height:44px;max-height:40vh;line-height:1.55;font-size:1.05rem;outline:none}
@@ -172,7 +171,6 @@ dialog h3{margin:0;font-size:1.05rem}
   <section class="view" id="today">
     <div class="hero"><div class="wrap">
       <div class="date" id="hero-date"></div>
-      <h1>いま、何を考えていますか。</h1>
       <form class="capture" id="capture">
         <textarea id="capture-text" rows="1" placeholder="1行に1つ書く" aria-label="メモを書く" enterkeyhint="send"></textarea>
         <button class="btn primary" type="submit">追加</button>
