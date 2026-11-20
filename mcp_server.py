@@ -1,52 +1,60 @@
-"""mcp_server.py — ZzzMemo MCP Server (HTTP backend)
+"""mcp_server.py — ZzzMemo tools for AI agents (MCP server and CLI)
 
-Claude Code (and other MCP clients) read/write ZzzMemo through the deployed
-HTTP API (default: https://zzzmemo.fly.dev). This means an AI agent can add a
-task with a due date and it is pushed to Google Calendar / Tasks by the same
-server that owns the Google credentials — no duplicate events, one source of truth.
+The user writes raw lines ("entries") in the app; an agent later sorts them
+into items of a kind (タスク, メモ, 欲しい物, ...). These tools wrap the v2 HTTP
+API so an agent can do that sorting. The server holds no LLM: the thinking
+happens in the agent.
 
-Configuration (environment variables, set in .mcp.json "env" or the OS):
+Two ways to use the same tools:
+  MCP server (needs `pip install mcp`):
+      python mcp_server.py
+  CLI, no extra packages (for slash commands, Codex, scripts):
+      python mcp_server.py list                     # list tool names
+      python mcp_server.py call list_unsorted '{}'
+      python mcp_server.py call sort_entry '{"entry_id": "...", "kind": "タスク", "title": "..."}'
+
+Configuration (environment variables):
   ZZZMEMO_BASE_URL   API base URL (default: https://zzzmemo.fly.dev)
-  ZZZMEMO_API_KEY    value of the server's ZZZMEMO_API_KEY secret (X-Api-Key auth)
+  ZZZMEMO_API_KEY    the server's ZZZMEMO_API_KEY secret (sent as X-Api-Key)
+  ZZZMEMO_ACTOR      name recorded in the change log (default: agent)
 
-Setup in .mcp.json:
-{
-  "mcpServers": {
-    "zzzmemo": {
-      "command": "python",
-      "args": ["<path-to-repo>/mcp_server.py"],
-      "env": {
-        "ZZZMEMO_BASE_URL": "https://zzzmemo.fly.dev",
-        "ZZZMEMO_API_KEY": "<your-api-key>"
-      }
-    }
-  }
-}
-
-Install: pip install mcp
+What an agent may do is decided by the server: it can add entries and items,
+edit items, set an entry's state and undo those changes. A kind it adds stays
+"proposed" until the user approves it in the app. Changing or deleting kinds
+and rewriting what the user wrote are refused (HTTP 403).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-
-from mcp.server.fastmcp import FastMCP
+from typing import Any, Optional
 
 BASE_URL = os.environ.get("ZZZMEMO_BASE_URL", "https://zzzmemo.fly.dev").rstrip("/")
 API_KEY = os.environ.get("ZZZMEMO_API_KEY", "")
+ACTOR = os.environ.get("ZZZMEMO_ACTOR", "agent")
 
-mcp = FastMCP("ZzzMemo")
+TOOLS = []
 
 
-def _req(method: str, path: str, body: dict | None = None) -> dict | list:
-    """Call the ZzzMemo HTTP API. Returns parsed JSON ({} on 204)."""
-    url = BASE_URL + path
+def tool(fn):
+    TOOLS.append(fn)
+    return fn
+
+
+def _req(method: str, path: str, body: Optional[dict] = None, query: Optional[dict] = None) -> Any:
+    """Call the ZzzMemo HTTP API and return parsed JSON."""
+    url = BASE_URL + urllib.parse.quote(path)
+    if query:
+        q = {k: v for k, v in query.items() if v is not None}
+        if q:
+            url += "?" + urllib.parse.urlencode(q)
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "X-Actor": ACTOR}
     if API_KEY:
         headers["X-Api-Key"] = API_KEY
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -56,212 +64,220 @@ def _req(method: str, path: str, body: dict | None = None) -> dict | list:
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", "replace")
+        try:
+            detail = json.loads(detail).get("detail", detail)
+        except (ValueError, AttributeError):
+            pass
         raise RuntimeError(f"HTTP {e.code}: {detail}") from None
     except urllib.error.URLError as e:
-        raise RuntimeError(f"接続失敗 ({BASE_URL}): {e.reason}") from None
+        raise RuntimeError(f"cannot reach {BASE_URL}: {e.reason}") from None
 
 
-def _resolve_end(start: str, end_time: str) -> str:
-    """end_time が時刻のみ ("HH:MM:SS") の場合は start の日付を補う。
-    既に日付付き ("...T...") ならそのまま返す。"""
-    if "T" in end_time:
-        return end_time
-    date_part = start.split("T")[0]
-    return f"{date_part}T{end_time}"
+def _out(obj: Any) -> str:
+    return json.dumps(obj, ensure_ascii=False, indent=1)
 
 
-# ── Tasks ─────────────────────────────────────────────────────────────
+def _entry(e: dict) -> dict:
+    return {k: e[k] for k in ("id", "body", "day", "state", "created_at")}
 
 
-@mcp.tool()
-def get_tasks(status: str = "todo") -> str:
-    """タスクを取得する。status: inbox / todo / done / trashed / longterm
-    （カンマ区切りで複数指定可: "inbox,todo"）"""
-    data = _req("GET", f"/api/tasks?status={urllib.parse.quote(status)}")
-    return json.dumps(data.get("tasks", []), ensure_ascii=False, indent=2)
+def _item(i: dict, kinds: Optional[dict] = None) -> dict:
+    out = {k: i[k] for k in ("id", "title", "status", "due", "fields", "body", "entry_id")}
+    if kinds is not None:
+        out["kind"] = kinds.get(i["kind_id"], i["kind_id"])
+    return out
 
 
-@mcp.tool()
-def add_task(
-    text: str,
-    category: str = "",
-    importance: str = "medium",
-    due_date: str = "",
-    end_time: str = "",
-    calendar: bool = True,
-) -> str:
-    """新しいタスクを追加する。due_date 付きかつ calendar=True なら Google Calendar / Tasks へ自動同期される。
-
-    category: 仕事 / プライベート / 買い物 / 学習 / その他（空ならAIが後で分類）
-    importance: high / medium / low
-    due_date: 終日タスクは "YYYY-MM-DD"、時刻指定は "YYYY-MM-DDTHH:MM:SS"（任意）
-      - 時刻あり → Google Calendar の予定として作成
-      - 時刻なし → Google Tasks（ToDo）として作成
-    end_time: 終了時刻 "YYYY-MM-DDTHH:MM:SS"（任意）。指定すると
-      「15:00〜16:00」のような幅を持つ Calendar 予定になる。
-      時刻だけ "HH:MM:SS" でも可（due_date と同じ日付になる）。
-    calendar: Google への同期を行うか（デフォルト True）。Google に出したくない
-      単なるメモ・ToDo なら False を指定する。due_date がなければ無効。
-    """
-    body: dict = {"text": text, "importance": importance}
-    if category:
-        body["category"] = category
-        body["status"] = "todo"  # 分類済みは todo として登録
-    else:
-        body["auto_classify"] = True  # 未分類はサーバー側でAI分類
-    if due_date:
-        start = due_date if "T" in due_date else due_date + "T00:00:00"
-        body["due_date"] = start
-        if end_time:
-            body["due_end"] = _resolve_end(start, end_time)
-        body["calendar_sync"] = calendar
-    task = _req("POST", "/api/tasks", body)
-    dest = ""
-    if due_date and calendar:
-        if "T" in due_date or end_time:
-            dest = " → Calendar"
-        else:
-            dest = " → Google Tasks"
-    return f"タスクを追加しました: {text}{dest}\nid: {task.get('id', '')}"
+def _kind_names() -> dict:
+    return {k["id"]: k["name"] for k in _req("GET", "/api/kinds")["kinds"]}
 
 
-@mcp.tool()
-def update_task(
-    task_id: str,
-    text: str = "",
-    category: str = "",
-    due_date: str = "",
-    end_time: str = "",
-    calendar: str = "",
-) -> str:
-    """既存タスクを更新する。due_date / end_time を変更すると Google 側にも即反映される。
-    due_date に "clear" を渡すと期日を外し、Google の予定/ToDo も削除する。
-    end_time に "clear" を渡すと終了時刻だけ外す（予定はゼロ幅に戻る）。
-    calendar に "on"/"off" を渡すと Google 同期の ON/OFF を切り替える
-    （"off" で予定/ToDo を削除）。due_date を新しく設定すると既定で同期 ON になる。"""
-    body: dict = {}
-    if text:
-        body["text"] = text
-    if category:
-        body["category"] = category
-    if due_date == "clear":
-        body["due_date"] = None
-    elif due_date:
-        body["due_date"] = due_date if "T" in due_date else due_date + "T00:00:00"
-        body["calendar_sync"] = True  # 新規スケジュール時は既定で同期 ON
-    if calendar == "on":
-        body["calendar_sync"] = True
-    elif calendar == "off":
-        body["calendar_sync"] = False
-    if end_time == "clear":
-        body["due_end"] = None
-    elif end_time:
-        # due_date が同時指定ならそれを基準にする。時刻のみ指定で due_date 変更なしの
-        # 場合は既存タスクの期日から日付を補う（補わないと "HH:MM:SST HH:MM:SS" の
-        # 不正な日時文字列になり 422 で失敗していた）
-        base = body.get("due_date")
-        if not base and "T" not in end_time:
-            tasks = _req("GET", "/api/tasks").get("tasks", [])
-            cur = next((t for t in tasks if t["id"] == task_id), None)
-            if not cur or not cur.get("due_date"):
-                return (
-                    "end_time を時刻のみで指定するにはタスクに期日が必要です。"
-                    "due_date も併せて指定してください。"
-                )
-            base = cur["due_date"]
-        body["due_end"] = _resolve_end(base or end_time, end_time)
-    if not body:
-        return "変更内容がありません"
-    _req("PATCH", f"/api/tasks/{task_id}", body)
-    return f"更新しました: {task_id}"
+# ── reading ───────────────────────────────────────────────────────────────────
 
 
-@mcp.tool()
-def complete_task(task_id: str) -> str:
-    """タスクを完了にする。"""
-    _req("PATCH", f"/api/tasks/{task_id}", {"status": "done"})
-    return f"完了: {task_id}"
+@tool
+def list_kinds() -> str:
+    """List kinds (categories) with their fields. Only kinds whose status is
+    "active" can hold items; "proposed" ones wait for the user's approval."""
+    kinds = _req("GET", "/api/kinds")["kinds"]
+    return _out([{k: x[k] for k in ("id", "name", "status", "fields")} for x in kinds])
 
 
-@mcp.tool()
-def get_task_summary() -> str:
-    """inbox / todo のタスク件数サマリーを返す。"""
-    data = _req("GET", "/api/tasks?status=inbox,todo")
-    summary: dict[str, int] = {}
-    for t in data.get("tasks", []):
-        summary[t["status"]] = summary.get(t["status"], 0) + 1
-    return json.dumps(summary, ensure_ascii=False)
+@tool
+def list_unsorted(limit: int = 200) -> str:
+    """Lines the user wrote that no agent has sorted yet (state "new"), oldest
+    day first. Each line's `day` is the day it was written for: resolve words
+    like 明日 relative to that day, not to today."""
+    entries = _req("GET", "/api/entries", query={"state": "new", "limit": limit})["entries"]
+    entries.sort(key=lambda e: (e["day"], e["created_at"]))
+    return _out([_entry(e) for e in entries])
 
 
-# ── Calendar ──────────────────────────────────────────────────────────
+@tool
+def list_entries(day: Optional[str] = None, state: Optional[str] = None, limit: int = 200) -> str:
+    """Lines the user wrote, filtered by day (YYYY-MM-DD) and/or state
+    (new / done / review)."""
+    entries = _req("GET", "/api/entries", query={"day": day, "state": state, "limit": limit})["entries"]
+    return _out([_entry(e) for e in entries])
 
 
-@mcp.tool()
-def get_calendar_events(days: int = 7) -> str:
-    """今日から days 日分の Google Calendar の予定を取得する。
-    タスクを追加する前に既存予定を確認して重複を避けるのに使う。"""
-    data = _req("GET", f"/api/calendar/events?days={int(days)}")
-    if not data.get("authenticated", True):
-        return "Google 未認証です。ZzzMemo の設定タブから Google ログインしてください。"
-    return json.dumps(data.get("events", []), ensure_ascii=False, indent=2)
+@tool
+def list_items(kind: Optional[str] = None, status: str = "open", q: Optional[str] = None,
+               due_before: Optional[str] = None) -> str:
+    """List items. kind: name or id. status: open / done / trashed / all.
+    q: text search in title and body. due_before: ISO date or datetime."""
+    items = _req("GET", "/api/items", query={"kind": kind, "status": status, "q": q,
+                                             "due_before": due_before})["items"]
+    names = _kind_names()
+    return _out([_item(i, names) for i in items])
 
 
-# ── Diary ─────────────────────────────────────────────────────────────
+@tool
+def get_today() -> str:
+    """Today's lines, items due within 3 days, open tasks, and the number of
+    kinds waiting for approval."""
+    t = _req("GET", "/api/today")
+    names = _kind_names()
+    return _out({
+        "day": t["day"],
+        "entries": [_entry(e) for e in t["entries"]],
+        "due_soon": [_item(i, names) for i in t["due_soon"]],
+        "open_tasks": [_item(i, names) for i in t["open_tasks"]],
+        "kinds_waiting_for_approval": t["review"],
+    })
 
 
-@mcp.tool()
-def get_diary(date_str: str = "") -> str:
-    """日記を取得する。date_str: YYYY-MM-DD（省略時は今日）"""
-    if not date_str:
-        from datetime import date
+@tool
+def recent_changes(limit: int = 20) -> str:
+    """The change log, newest first. Use a log id with undo_change."""
+    log = _req("GET", "/api/log", query={"limit": limit})["log"]
+    out = []
+    for entry in log:
+        row = entry["after"] or entry["before"] or {}
+        out.append({"id": entry["id"], "at": entry["at"], "actor": entry["actor"],
+                    "table": entry["table_name"], "op": entry["op"],
+                    "what": row.get("title") or row.get("body") or row.get("name"),
+                    "undone": bool(entry["undone"])})
+    return _out(out)
 
-        date_str = date.today().isoformat()
+
+# ── writing ───────────────────────────────────────────────────────────────────
+
+
+@tool
+def sort_entry(entry_id: str, kind: str, title: str, due: Optional[str] = None,
+               fields: Optional[dict] = None, body: str = "") -> str:
+    """Turn one of the user's lines into an item and mark the line as sorted.
+    kind: an active kind's name or id. due: ISO datetime such as
+    2026-11-20T09:00:00 (use T00:00:00 when only the date is known), or omit.
+    fields: values for the kind's fields only, e.g. {"重要度": "高"}."""
+    item = _req("POST", "/api/items", {"kind": kind, "title": title, "due": due,
+                                       "fields": fields or {}, "body": body, "entry_id": entry_id})
+    _req("PATCH", f"/api/entries/{entry_id}", {"state": "done"})
+    return _out({"item": _item(item), "entry": entry_id, "entry_state": "done"})
+
+
+@tool
+def mark_entry(entry_id: str, state: str) -> str:
+    """Set a line's state without creating an item. state: "done" (nothing to
+    file, e.g. a diary line), "review" (the user should decide), or "new"."""
+    return _out(_entry(_req("PATCH", f"/api/entries/{entry_id}", {"state": state})))
+
+
+@tool
+def add_entries(text: str, day: Optional[str] = None) -> str:
+    """Write lines on the user's behalf, one entry per line (day defaults to
+    today). Use only when the user asks you to note something down."""
+    return _out([_entry(e) for e in _req("POST", "/api/entries", {"body": text, "day": day})["entries"]])
+
+
+@tool
+def add_item(kind: str, title: str, due: Optional[str] = None,
+             fields: Optional[dict] = None, body: str = "") -> str:
+    """Create an item directly, not from a line (e.g. the user asked in chat)."""
+    item = _req("POST", "/api/items", {"kind": kind, "title": title, "due": due,
+                                       "fields": fields or {}, "body": body})
+    return _out(_item(item))
+
+
+@tool
+def update_item(item_id: str, title: Optional[str] = None, status: Optional[str] = None,
+                due: Optional[str] = None, clear_due: bool = False, kind: Optional[str] = None,
+                fields: Optional[dict] = None, body: Optional[str] = None) -> str:
+    """Change an item. status: open / done / trashed. clear_due=true removes
+    the due date. Changing kind drops the old kind's field values."""
+    changes = {k: v for k, v in {"title": title, "status": status, "due": due, "kind": kind,
+                                 "fields": fields, "body": body}.items() if v is not None}
+    if clear_due:
+        changes["due"] = None
+    if not changes:
+        raise RuntimeError("nothing to change")
+    return _out(_item(_req("PATCH", f"/api/items/{item_id}", changes)))
+
+
+@tool
+def propose_kind(name: str, fields: Optional[list] = None) -> str:
+    """Propose a new kind. It stays "proposed" until the user approves it in
+    the app, so mark the lines that need it as "review" in the meantime.
+    fields: [{"name": "著者", "type": "text"}, {"name": "状態", "type":
+    "choice", "options": ["未読", "読了"]}]; types: text, date, choice,
+    number, bool."""
+    k = _req("POST", "/api/kinds", {"name": name, "fields": fields or []})
+    return _out({key: k[key] for key in ("id", "name", "status", "fields")})
+
+
+@tool
+def undo_change(log_id: int) -> str:
+    """Undo one change from recent_changes. Refused if the row changed again
+    afterwards (undo the later change first) or if it is a change to kinds."""
+    return _out(_req("POST", f"/api/log/{log_id}/undo"))
+
+
+# ── entry point ───────────────────────────────────────────────────────────────
+
+
+def _cli(argv: list) -> int:
+    by_name = {f.__name__: f for f in TOOLS}
+    if argv[1] == "list":
+        for f in TOOLS:
+            print(f"{f.__name__}: {(f.__doc__ or '').strip().splitlines()[0]}")
+        return 0
+    if argv[1] != "call" or len(argv) < 3 or argv[2] not in by_name:
+        print("usage: mcp_server.py [list | call <tool> '<json args>']", file=sys.stderr)
+        return 2
+    args = json.loads(argv[3]) if len(argv) > 3 else {}
     try:
-        entry = _req("GET", f"/api/diary/{date_str}")
+        print(by_name[argv[2]](**args))
     except RuntimeError as e:
-        if "404" in str(e):
-            return f"{date_str} の日記はありません"
-        raise
-    return json.dumps(entry, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def get_recent_diaries(days: int = 7) -> str:
-    """最近 N 日分の日記一覧を取得する（本文含む）。"""
-    listing = _req("GET", "/api/diary")
-    dates = listing.get("dates", [])[:days]
-    entries = [_req("GET", f"/api/diary/{d}") for d in dates]
-    return json.dumps(entries, ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def save_diary(date_str: str, content: str) -> str:
-    """日記を保存する（上書き）。date_str: YYYY-MM-DD"""
-    _req("POST", "/api/diary", {"date_str": date_str, "content": content})
-    return f"{date_str} の日記を保存しました"
-
-
-# ── Blog ──────────────────────────────────────────────────────────────
-
-
-@mcp.tool()
-def get_blog_posts() -> str:
-    """ブログ記事一覧（タイトル・タグ・更新日・プレビュー）を取得する。"""
-    data = _req("GET", "/api/blog")
-    return json.dumps(data.get("posts", []), ensure_ascii=False, indent=2)
-
-
-@mcp.tool()
-def get_blog_post(post_id: str) -> str:
-    """ブログ記事の全文を取得する。"""
-    try:
-        post = _req("GET", f"/api/blog/{post_id}")
-    except RuntimeError as e:
-        if "404" in str(e):
-            return f"記事が見つかりません: {post_id}"
-        raise
-    return json.dumps(post, ensure_ascii=False, indent=2)
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        sys.exit(_cli(sys.argv))
+    import functools
+
+    try:  # mcp 2.x renamed FastMCP to MCPServer
+        from mcp.server.mcpserver import MCPServer as Server
+        from mcp.server.mcpserver.exceptions import ToolError
+    except ImportError:
+        from mcp.server.fastmcp import FastMCP as Server
+        from mcp.server.fastmcp.exceptions import ToolError
+
+    def _passing_errors(fn):
+        # Without ToolError the client only sees "Error executing tool";
+        # the agent needs the server's reason (e.g. which field value is wrong).
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except RuntimeError as e:
+                raise ToolError(str(e)) from None
+        return wrapper
+
+    mcp = Server("ZzzMemo")
+    for f in TOOLS:
+        mcp.tool()(_passing_errors(f))
     mcp.run()
