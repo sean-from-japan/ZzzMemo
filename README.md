@@ -15,6 +15,7 @@ The first version of ZzzMemo had Gemini built in and asked for a category, due d
 - **You** only write lines, as fast as in a paper notebook. No fields to fill in.
 - **An agent** sorts them later, in a batch, when you ask it to (for example a `/zzz` slash command in Claude Code). Nothing needs an LLM in real time, so the server holds no LLM API key.
 - **Kinds are data, not code.** タスク (tasks), メモ (notes), 欲しい物 (wish list) and チェックリスト exist by default. An agent can propose a new kind with its own fields; it becomes usable after you approve it in the app. The screens are generated from the kind definitions, so adding a kind changes no code.
+- **Agents can leave things for you to read.** A kind can have a `file` field holding an HTML or PDF file (up to 10 MB), such as a research report or an English script. Tapping such an item opens a reading screen in the app; an HTML page cut into `.slide` blocks is shown one slide at a time with previous/next buttons. Stored HTML runs in a sandbox with no origin, so its scripts work but cannot read your session cookie or call the API.
 - **Every change can be undone.** Each write, by you or an agent, goes to a change log with the row before and after.
 
 ## Screens
@@ -23,6 +24,7 @@ The first version of ZzzMemo had Gemini built in and asked for a category, due d
 |---|---|
 | Today | The capture box and the lines written today (or any earlier day) with their state: new, sorted, or waiting for you. Items due within three days and open tasks. |
 | Lists | One list per kind, with an editor generated from the kind's fields. |
+| Read | Opens an item's file: a back link, the title, details and "open in a new tab", and the file below. |
 | Review | Kinds proposed by agents (approve or reject), lines an agent could not decide, and the change log with undo buttons. |
 
 It is a PWA, so it can be added to a phone's home screen. Light and dark themes follow the system.
@@ -42,7 +44,7 @@ The server decides from how the request is authenticated, not from what the agen
 
 ## Tools for agents
 
-`mcp_server.py` exposes 13 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server:
+`mcp_server.py` exposes 14 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `add_file`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server:
 
 ```bash
 python mcp_server.py list
@@ -72,6 +74,7 @@ As an MCP server (`pip install mcp`; works with mcp 1.x and 2.x):
 | `GET/POST /api/kinds`, `PATCH/DELETE /api/kinds/{id}` | Kinds and their fields (text, date, choice, number, bool). |
 | `GET/POST /api/items`, `GET/PATCH /api/items/{id}` | Items. Field values are checked against the kind. |
 | `GET /api/today` | Today's lines, items due soon, open tasks, kinds awaiting approval. |
+| `POST /api/files?name=<file name>`, `GET /files/{id}` | Upload an HTML or PDF file as the raw request body (returns its id), and read it. Files are never rewritten; a new version is a new id. |
 | `GET /api/log`, `POST /api/log/{id}/undo` | Change log and undo. Undo is refused if the row changed again afterwards. |
 
 ## Run it

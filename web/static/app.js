@@ -1,6 +1,6 @@
 // ZzzMemo v2 front end. Talks only to /api/entries, /api/kinds, /api/items,
-// /api/today and /api/log. Text from the server is always inserted as text,
-// never as HTML, because agents write it.
+// /api/today and /api/log, and shows stored files from /files/{id}. Text from
+// the server is always inserted as text, never as HTML, because agents write it.
 
 const $ = (id) => document.getElementById(id);
 const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
@@ -89,19 +89,29 @@ async function api(path, opts = {}) {
 }
 
 const kindById = (id) => state.kinds.find((k) => k.id === id);
+// The stored file of an item: the value of its kind's first file field.
+function fileOf(item) {
+  const f = kindById(item.kind_id)?.fields.find((x) => x.type === "file");
+  return f ? item.fields?.[f.name] || null : null;
+}
 const activeKinds = () => state.kinds.filter((k) => k.status === "active");
 
 // ── tabs ─────────────────────────────────────────────────────────────────────
 
 function currentTab() {
   const t = location.hash.slice(1);
+  if (t.startsWith("read/")) return "read";
   return ["today", "list", "review"].includes(t) ? t : "today";
 }
 
 async function showTab() {
   const tab = currentTab();
+  if (tab !== "read") state.from = location.hash || "#today";
+  document.body.classList.toggle("reading", tab === "read");
   document.querySelectorAll("section.view").forEach((s) => s.classList.toggle("on", s.id === tab));
   document.querySelectorAll(".seg a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
+  if (tab !== "read") $("read-frame").removeAttribute("src");
+  if (tab === "read") await renderRead(location.hash.slice(6));
   if (tab === "today") await renderToday();
   if (tab === "list") await renderList();
   if (tab === "review") await renderReview();
@@ -126,8 +136,10 @@ function itemRow(item, { showKind = false } = {}) {
   const kind = kindById(item.kind_id);
   const due = dueInfo(item.due);
   const done = item.status === "done";
+  const file = fileOf(item);
+  const types = Object.fromEntries((kind?.fields || []).map((f) => [f.name, f.type]));
   const extras = Object.entries(item.fields || {})
-    .filter(([, v]) => v !== null && v !== "" && v !== false)
+    .filter(([k, v]) => v !== null && v !== "" && v !== false && types[k] !== "file")
     .map(([k, v]) => h("span", { class: "tag plain" }, v === true ? k : `${k}：${v}`));
   return h("li", { class: "row" + (done ? " is-done" : "") },
     h("input", {
@@ -138,10 +150,12 @@ function itemRow(item, { showKind = false } = {}) {
         showTab();
       },
     }),
-    h("div", { class: "main open", onclick: () => openSheet(item) },
+    // An item with a file opens the reading screen; the sheet is one tap further.
+    h("div", { class: "main open", onclick: () => (file ? (location.hash = `#read/${item.id}`) : openSheet(item)) },
       h("span", { class: "title" }, item.title),
       h("div", { class: "sub" },
         showKind && kind ? h("span", { class: "tag" }, kind.name) : null,
+        file ? h("span", { class: "tag" }, file.endsWith(".pdf") ? "PDF" : "HTML") : null,
         due ? h("span", { class: `due ${due.cls}` }, due.text) : null,
         extras,
       ),
@@ -307,6 +321,11 @@ function fieldInput(f, value) {
     input = h("input", { type: "number", name, step: "any", value: value ?? "" });
   } else if (f.type === "date") {
     input = h("input", { type: "date", name, value: value ?? "" });
+  } else if (f.type === "file") {
+    // Files are uploaded by agents; the sheet only keeps the value and links to it.
+    return h("div", { class: "field" }, h("span", {}, f.name),
+      h("input", { type: "hidden", name, value: value ?? "" }),
+      value ? h("a", { href: `/files/${value}`, target: "_blank", rel: "noopener" }, "別のタブで開く") : "なし");
   } else {
     input = h("input", { name, value: value ?? "" });
   }
@@ -367,6 +386,27 @@ async function closeSheet(action) {
   await api(`/api/items/${item.id}`, { method: "PATCH", body });
   toast("保存しました");
   showTab();
+}
+
+// ── reading ──────────────────────────────────────────────────────────────────
+
+async function renderRead(itemId) {
+  const item = await api(`/api/items/${encodeURIComponent(itemId)}`);
+  const file = fileOf(item);
+  $("read-back").href = state.from || "#list";
+  $("read-title").textContent = item.title;
+  $("read-detail").onclick = () => openSheet(item);
+  const frame = $("read-frame");
+  if (!file) {
+    frame.removeAttribute("src");
+    return toast("この項目にはファイルがありません");
+  }
+  // Chrome refuses to show a PDF inside a sandboxed frame; the PDF itself
+  // cannot run page scripts, so only HTML gets the sandbox.
+  if (file.endsWith(".pdf")) frame.removeAttribute("sandbox");
+  else frame.setAttribute("sandbox", "allow-scripts allow-popups allow-popups-to-escape-sandbox");
+  $("read-open").href = `/files/${file}`;
+  if (frame.getAttribute("src") !== `/files/${file}`) frame.src = `/files/${file}`;
 }
 
 // ── review ───────────────────────────────────────────────────────────────────
@@ -462,6 +502,12 @@ $("show-done").addEventListener("change", renderList);
 $("sheet-kind").addEventListener("change", (e) => renderSheetFields(kindById(e.target.value), {}));
 $("sheet").addEventListener("close", () => closeSheet($("sheet").returnValue));
 window.addEventListener("hashchange", showTab);
+document.addEventListener("keydown", (e) => {
+  // Arrow keys pressed outside the frame still turn slides
+  if (currentTab() !== "read" || $("sheet").open || e.metaKey || e.altKey || e.ctrlKey) return;
+  const msg = { ArrowLeft: "slide-previous", PageUp: "slide-previous", ArrowRight: "slide-next", PageDown: "slide-next" }[e.key];
+  if (msg) $("read-frame").contentWindow?.postMessage(msg, "*");
+});
 
 (async () => {
   await loadKinds();

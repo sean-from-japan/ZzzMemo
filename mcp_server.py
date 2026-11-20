@@ -46,15 +46,17 @@ def tool(fn):
     return fn
 
 
-def _req(method: str, path: str, body: Optional[dict] = None, query: Optional[dict] = None) -> Any:
-    """Call the ZzzMemo HTTP API and return parsed JSON."""
+def _req(method: str, path: str, body: Optional[dict] = None, query: Optional[dict] = None,
+         raw: Optional[bytes] = None) -> Any:
+    """Call the ZzzMemo HTTP API and return parsed JSON. `raw` sends bytes as is."""
     url = BASE_URL + urllib.parse.quote(path)
     if query:
         q = {k: v for k, v in query.items() if v is not None}
         if q:
             url += "?" + urllib.parse.urlencode(q)
-    data = json.dumps(body).encode("utf-8") if body is not None else None
-    headers = {"Content-Type": "application/json", "X-Actor": ACTOR}
+    data = json.dumps(body).encode("utf-8") if body is not None else raw
+    headers = {"Content-Type": "application/json" if raw is None else "application/octet-stream",
+               "X-Actor": ACTOR}
     if API_KEY:
         headers["X-Api-Key"] = API_KEY
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -216,12 +218,45 @@ def update_item(item_id: str, title: Optional[str] = None, status: Optional[str]
 
 
 @tool
+def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict] = None,
+             body: str = "") -> str:
+    """Upload a local HTML or PDF file (max 10 MB) the user should read, such
+    as a research report or an English script, and file it as an item of a
+    kind with a "file" field. If an open item of that kind already has this
+    title, its file is replaced (the old file stays and the change can be
+    undone); otherwise a new item is created. HTML runs sandboxed and is shown
+    in the app's reading screen; `.slide` blocks get previous/next buttons.
+    fields: values for the kind's other fields, e.g. {"分類": "調べごと"}."""
+    with open(os.path.expanduser(path), "rb") as fh:
+        data = fh.read()
+    kinds = _req("GET", "/api/kinds")["kinds"]
+    k = next((x for x in kinds if kind in (x["id"], x["name"])), None)
+    if k is None:
+        raise RuntimeError(f"unknown kind '{kind}'")
+    file_field = next((f["name"] for f in k["fields"] if f["type"] == "file"), None)
+    if file_field is None:
+        raise RuntimeError(f"kind '{k['name']}' has no file field; propose one with propose_kind")
+    uploaded = _req("POST", "/api/files", query={"name": os.path.basename(path)}, raw=data)
+    values = {**(fields or {}), file_field: uploaded["id"]}
+    same = [i for i in _req("GET", "/api/items", query={"kind": k["id"], "q": title})["items"]
+            if i["title"] == title]
+    if same:
+        changes = {"fields": values}
+        if body:
+            changes["body"] = body
+        item = _req("PATCH", f"/api/items/{same[0]['id']}", changes)
+        return _out({"replaced": True, "item": _item(item)})
+    item = _req("POST", "/api/items", {"kind": k["id"], "title": title, "fields": values, "body": body})
+    return _out({"replaced": False, "item": _item(item)})
+
+
+@tool
 def propose_kind(name: str, fields: Optional[list] = None) -> str:
     """Propose a new kind. It stays "proposed" until the user approves it in
     the app, so mark the lines that need it as "review" in the meantime.
     fields: [{"name": "著者", "type": "text"}, {"name": "状態", "type":
     "choice", "options": ["未読", "読了"]}]; types: text, date, choice,
-    number, bool."""
+    number, bool, file (a file uploaded with add_file)."""
     k = _req("POST", "/api/kinds", {"name": name, "fields": fields or []})
     return _out({key: k[key] for key in ("id", "name", "status", "fields")})
 

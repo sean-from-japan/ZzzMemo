@@ -8,6 +8,7 @@ There is no in-memory copy: each call reads SQLite.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -19,7 +20,14 @@ DB_FILE = Path(__file__).parent.parent / "data" / "qcatch.db"
 ENTRY_STATES = {"new", "done", "review"}
 KIND_STATUSES = {"active", "proposed", "rejected"}
 ITEM_STATUSES = {"open", "done", "trashed"}
-FIELD_TYPES = {"text", "date", "choice", "number", "bool"}
+FIELD_TYPES = {"text", "date", "choice", "number", "bool", "file"}
+
+# Files (reports, scripts) live next to the DB, not in it: the change log keeps
+# whole rows, so a file inside a row would be copied into the log on every edit.
+# A stored file is never rewritten; a new version is a new file id.
+FILE_TYPES = {"html": "text/html; charset=utf-8", "pdf": "application/pdf"}
+MAX_FILE_BYTES = 10 * 1024 * 1024
+_FILE_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(html|pdf)$")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS entries (
@@ -329,6 +337,9 @@ def _check_values(kind: dict, values: dict) -> None:
         if t == "date" and isinstance(v, str):
             _check_day(v)
             ok = True
+        if t == "file" and isinstance(v, str):
+            file_path(v)
+            ok = True
         if not ok:
             raise Invalid(f"bad value for field '{name}' ({t}): {v!r}")
 
@@ -416,6 +427,47 @@ def update_item(item_id: str, changes: dict, actor: str) -> dict:
         after["updated_at"] = _now()
         _write(conn, actor, "items", "update", before, after)
     return after
+
+
+# ── files ─────────────────────────────────────────────────────────────────────
+
+
+def _files_dir() -> Path:
+    return DB_FILE.parent / "files"
+
+
+def save_file(data: bytes, filename: str) -> str:
+    """Store an HTML or PDF file and return its new id (uuid + extension)."""
+    ext = Path(filename).suffix.lower().lstrip(".")
+    if ext == "htm":
+        ext = "html"
+    if ext not in FILE_TYPES:
+        raise Invalid(f"only {', '.join(sorted(FILE_TYPES))} files are accepted")
+    if not data:
+        raise Invalid("empty file")
+    if len(data) > MAX_FILE_BYTES:
+        raise Invalid(f"file is larger than {MAX_FILE_BYTES // (1024 * 1024)} MB")
+    head = data[:2048].lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    if ext == "pdf" and not data.startswith(b"%PDF-"):
+        raise Invalid("not a PDF file")
+    if ext == "html" and not head.startswith((b"<!doctype html", b"<html")):
+        raise Invalid("not an HTML document (must start with <!DOCTYPE html> or <html>)")
+    file_id = f"{uuid.uuid4()}.{ext}"
+    d = _files_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = d / (file_id + ".part")
+    tmp.write_bytes(data)
+    tmp.rename(d / file_id)
+    return file_id
+
+
+def file_path(file_id: str) -> Path:
+    if not isinstance(file_id, str) or not _FILE_ID.match(file_id):
+        raise Invalid(f"not a file id: {file_id!r}")
+    p = _files_dir() / file_id
+    if not p.is_file():
+        raise NotFound(f"files/{file_id}")
+    return p
 
 
 # ── today / log ───────────────────────────────────────────────────────────────

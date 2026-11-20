@@ -1,4 +1,5 @@
-"""web/routers/api.py — /api/entries, /api/kinds, /api/items, /api/today, /api/log
+"""web/routers/api.py — /api/entries, /api/kinds, /api/items, /api/files, /files,
+/api/today, /api/log
 
 Who is calling decides what is allowed:
 - A request with an `X-Actor` header or the internal API key is an agent.
@@ -10,9 +11,11 @@ Who is calling decides what is allowed:
 from __future__ import annotations
 
 import secrets
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from core import db
@@ -183,6 +186,44 @@ def post_item(body: ItemIn, request: Request):
 @router.patch("/api/items/{item_id}")
 def patch_item(item_id: str, body: ItemPatch, request: Request):
     return _call(db.update_item, item_id, _changes(body), _actor(request))
+
+
+# ── files ─────────────────────────────────────────────────────────────────────
+
+# A stored HTML page runs in a sandbox with no origin: its scripts work (step
+# buttons, slide paging) but cannot read the session cookie or call /api.
+_HTML_HEADERS = {
+    "Content-Security-Policy": "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox",
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-cache",
+}
+# Pages cut into `.slide` blocks get previous/next buttons, as in the class app.
+# Inlined: a sandboxed page has no origin, and some browsers block its requests.
+_PAGER = (b"<script>" + (Path(__file__).parent.parent / "static" / "slide_paging.js").read_bytes()
+          + b"</script>")
+
+
+@router.post("/api/files")
+async def post_file(request: Request, name: str):
+    # The body is the raw file, so agents can upload without multipart encoding.
+    size = int(request.headers.get("content-length") or 0)
+    if size > db.MAX_FILE_BYTES:
+        raise HTTPException(400, f"file is larger than {db.MAX_FILE_BYTES // (1024 * 1024)} MB")
+    file_id = _call(db.save_file, await request.body(), name)
+    return {"id": file_id, "url": f"/files/{file_id}"}
+
+
+@router.get("/files/{file_id}")
+def get_file(file_id: str):
+    path = _call(db.file_path, file_id)
+    ext = path.suffix.lstrip(".")
+    if ext == "pdf":
+        return FileResponse(str(path), media_type=db.FILE_TYPES[ext],
+                            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache"})
+    data = path.read_bytes()
+    i = data.lower().rfind(b"</body>")
+    data = data[:i] + _PAGER + data[i:] if i >= 0 else data + _PAGER
+    return Response(data, media_type=db.FILE_TYPES[ext], headers=_HTML_HEADERS)
 
 
 # ── today / log ───────────────────────────────────────────────────────────────
