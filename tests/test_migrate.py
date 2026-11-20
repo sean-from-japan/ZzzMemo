@@ -6,7 +6,26 @@ import sqlite3
 import pytest
 
 import migrate_v1
-from core import db, storage
+from core import db
+
+
+# The v1 tables migrate_v1.py reads (columns it does not read are left out)
+OLD_SCHEMA = """
+CREATE TABLE tasks (
+    id TEXT PRIMARY KEY, text TEXT NOT NULL, status TEXT NOT NULL, category TEXT,
+    tags TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, completed_at TEXT,
+    due_date TEXT, importance TEXT NOT NULL DEFAULT 'medium',
+    calendar_sync INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE checklists (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, due_date TEXT,
+    items TEXT NOT NULL DEFAULT '[]', parent_id TEXT, sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE diary_entries (
+    date_str TEXT PRIMARY KEY, content TEXT NOT NULL,
+    referenced_task_ids TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+"""
 
 
 @pytest.fixture
@@ -14,7 +33,7 @@ def old_db(tmp_path, monkeypatch):
     path = tmp_path / "qcatch.db"
     monkeypatch.setattr(db, "DB_FILE", path)
     conn = sqlite3.connect(path)
-    conn.executescript(storage._SCHEMA)
+    conn.executescript(OLD_SCHEMA)
     task = ("INSERT INTO tasks (id,text,status,category,tags,created_at,completed_at,due_date,"
             "importance,calendar_sync) VALUES (?,?,?,?,?,?,?,?,?,0)")
     conn.execute(task, ("t1", "書類を出す", "todo", "プライベート", '["事務手続き"]',

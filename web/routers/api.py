@@ -1,4 +1,4 @@
-"""web/routers/v2.py — /api/entries, /api/kinds, /api/items, /api/today, /api/log
+"""web/routers/api.py — /api/entries, /api/kinds, /api/items, /api/today, /api/log
 
 Who is calling decides what is allowed:
 - A request with an `X-Actor` header or the internal API key is an agent.

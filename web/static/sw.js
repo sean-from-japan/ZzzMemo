@@ -1,46 +1,12 @@
-const CACHE_NAME = 'qcatch-v16';
-const STATIC_URLS = [
-  '/', '/static/index.html', '/manifest.json',
-  '/static/icon-192.png', '/static/icon-512.png',
-  '/static/screenshot-wide.png', '/static/screenshot-narrow.png',
-];
-
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_URLS))
-  );
-  self.skipWaiting();
-});
+// Installable-app support only. Nothing is cached: the page always comes from
+// the server. Activating this worker also deletes the caches left by the old
+// app, whose worker served a cached copy of "/" first.
+self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', event => {
-  // API リクエストは常にネットワークへ
-  // v2 is under development: always fetch it fresh
-  const path = new URL(event.request.url).pathname;
-  if (event.request.url.includes('/api/') || path === '/v2' || path.startsWith('/v2/')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-  // 静的リソースはキャッシュファースト
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
-      return fetch(event.request).then(response => {
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
-        }
-        const toCache = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, toCache));
-        return response;
-      });
-    })
+    caches.keys()
+      .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });

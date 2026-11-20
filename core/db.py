@@ -1,8 +1,8 @@
-"""core/db.py — v2 storage: entries, kinds, items and the change log.
+"""core/db.py — storage: entries, kinds, items and the change log.
 
 Every write goes through `_write`, which records the before/after row in
 `change_log` so that any change (by the user or an agent) can be undone.
-Unlike core/storage.py there is no in-memory copy: each call reads SQLite.
+There is no in-memory copy: each call reads SQLite.
 """
 
 from __future__ import annotations

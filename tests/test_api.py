@@ -1,4 +1,4 @@
-"""Tests for the v2 API (core/db.py + web/routers/v2.py).
+"""Tests for the API (core/db.py + web/routers/api.py).
 
 Each test gets its own empty SQLite file; nothing under data/ is touched.
 Run: python -m pytest tests
@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from core import db
-from web.routers import v2
+from web.routers import api
 
 AGENT = {"X-Actor": "claude"}
 
@@ -21,7 +21,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB_FILE", tmp_path / "test.db")
     db.init()
     app = FastAPI()
-    app.include_router(v2.router)
+    app.include_router(api.router)
     return TestClient(app)
 
 

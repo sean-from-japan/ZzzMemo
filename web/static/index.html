@@ -2,1174 +2,278 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#0d0d0d">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0b0b" media="(prefers-color-scheme: dark)">
 <title>ZzzMemo</title>
 <link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/static/icon-192.png">
 <style>
-:root{--bg:#0d0d0d;--surface:#161616;--border:#282828;--surface-deep:#111;--divider:#1e1e1e;--input-border:#383838;--text:#e0e0e0;--text-muted:#999;--text-dim:#777;--text-faint:#555;--text-hover:#ccc;--overlay:rgba(0,0,0,.85);--shadow:rgba(0,0,0,.7);--accent:#818cf8;--accent-glow:#818cf880}
-[data-theme=navy]{--bg:#1a1a2e;--surface:#16213e;--border:#0f3460;--surface-deep:#0f2547;--divider:#1a2a4a;--input-border:#1a4080;--text:#e0e0e0;--text-muted:#aaa;--text-dim:#666;--text-faint:#555;--text-hover:#ccc;--overlay:rgba(0,0,0,.7);--shadow:rgba(0,0,0,.5);--accent:#60a5fa;--accent-glow:#60a5fa80}
-[data-theme=white]{--bg:#f8f9fa;--surface:#fff;--border:#dee2e6;--surface-deep:#e9ecef;--divider:#ced4da;--input-border:#adb5bd;--text:#212529;--text-muted:#6c757d;--text-dim:#868e96;--text-faint:#adb5bd;--text-hover:#343a40;--overlay:rgba(0,0,0,.5);--shadow:rgba(0,0,0,.15);--accent:#3b82f6;--accent-glow:#3b82f680}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:"Meiryo","Segoe UI",sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
-/* ── トップナビ ── */
-.bottom-nav{display:flex;background:var(--surface);border-bottom:2px solid var(--border);flex-shrink:0;height:52px;position:sticky;top:0;z-index:90}
-.nav-btn{flex:1;background:transparent;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;transition:color .2s;font-family:inherit;border-bottom:2px solid transparent;margin-bottom:-2px}
-.nav-btn:hover{color:var(--text-hover)}
-.nav-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
-.nav-icon{display:flex;align-items:center;justify-content:center;width:20px;height:20px}
-.nav-label{font-size:10px}
-/* ── メインコンテンツ ── */
-.content{flex:1;overflow-y:auto;padding:16px 20px;padding-bottom:max(16px, env(safe-area-inset-bottom))}
-.pane{display:none}
-.pane.active{display:block}
-/* ── Quick Add ── */
-.quick-add{display:flex;gap:8px;margin-bottom:16px}
-.quick-add input{flex:1;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:inherit}
-.quick-add input:focus{outline:none;border-color:var(--accent)}
-/* ── ボタン ── */
-.btn{padding:9px 16px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;transition:opacity .2s;min-height:44px;user-select:none;-webkit-user-select:none}
-.btn:hover{opacity:.85}
-.btn-primary{background:var(--accent);color:#000;font-weight:600}
-.btn-success{background:#4caf50;color:#fff;font-weight:600}
-.btn-danger{background:#e53935;color:#fff}
-.btn-warning{background:#ff9800;color:#000}
-.btn-ghost{background:transparent;border:1px solid var(--text-faint);color:var(--text-muted)}
-.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
-.btn-sm{padding:5px 10px;font-size:12px}
-/* ── タスクリスト ── */
-.task-list{display:flex;flex-direction:column;gap:6px}
-.task-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border-radius:8px;border:1px solid var(--border);cursor:default;transition:border-color .15s;user-select:none;-webkit-user-select:none}
-.task-item:hover{border-color:var(--accent)}
-.task-item.selected{border-color:var(--accent);background:var(--surface-deep)}
-.task-item input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--accent)}
-.task-text{flex:1;font-size:14px;line-height:1.4}
-.task-cat{font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;white-space:nowrap}
-.task-actions{display:flex;gap:6px;flex-shrink:0}
-.cat-仕事{background:#1565c0;color:#90caf9}
-.cat-プライベート{background:#6a1b9a;color:#ce93d8}
-.cat-買い物{background:#2e7d32;color:#a5d6a7}
-.cat-学習{background:#e65100;color:#ffcc80}
-.cat-その他{background:#37474f;color:#b0bec5}
-/* ── カテゴリセクション ── */
-.cat-section{margin-bottom:20px}
-.cat-header{display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:6px 0;cursor:pointer;user-select:none;-webkit-user-select:none}
-.cat-header:hover h3{color:var(--text-hover)}
-.cat-header h3{font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;transition:color .15s}
-.cat-count{font-size:11px;color:var(--text-dim);padding:2px 8px;background:var(--surface);border-radius:10px}
-.cat-fold-icon{font-size:11px;color:var(--text-faint);margin-left:auto;transition:transform .2s}
-.cat-section.folded .cat-fold-icon{transform:rotate(-90deg)}
-.cat-section.folded .task-list{display:none}
-/* ── ツールバー ── */
-.toolbar{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
-.toolbar-right{margin-left:auto;display:flex;gap:8px}
-/* ── バッジ ── */
-.badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px;background:var(--border);color:var(--accent);font-weight:600}
-/* ── チェックリスト ── */
-.checklist-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden}
-.checklist-card.cl-folder{background:var(--surface-deep);border-left:3px solid var(--accent)}
-.cl-children{padding:4px 0 4px 0;border-left:1px dashed var(--border);margin-left:24px}
-.checklist-head{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--border)}
-.checklist-head h3{flex:1;font-size:15px;font-weight:600}
-.checklist-items{padding:10px 16px;display:flex;flex-direction:column;gap:6px}
-.cl-item{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--divider)}
-.cl-item:last-child{border-bottom:none}
-.cl-item input[type=checkbox]{width:16px;height:16px;cursor:pointer;accent-color:var(--accent)}
-.cl-item label{flex:1;font-size:14px;cursor:pointer}
-.cl-item.done label{text-decoration:line-through;color:var(--text-faint)}
-.cl-progress{font-size:12px;color:var(--text-dim);margin-left:auto}
-.checklist-footer{padding:10px 16px;display:flex;gap:8px;border-top:1px solid var(--border)}
-/* ── 定期タスク ── */
-.recurring-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
-.recurring-info{flex:1}
-.recurring-info .text{font-size:14px;font-weight:600}
-.recurring-info .meta{font-size:12px;color:var(--text-dim);margin-top:3px}
-.wishlist-row{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px}
-.wishlist-row.in-cart{background:#1a2a10;border-color:#2e7d32}
-.wishlist-text{flex:1;font-size:15px;color:var(--text)}
-.cart-btn{background:transparent;border:1px solid var(--border);color:var(--text-dim);border-radius:8px;width:36px;height:36px;font-size:18px;cursor:pointer;flex-shrink:0;transition:all .15s}
-.cart-btn.active{background:#2e7d32;border-color:#2e7d32;color:#fff}
-.cart-btn:hover{border-color:var(--accent)}
-.wishlist-history{margin-top:20px;padding:14px 16px;background:var(--surface-deep);border-radius:10px}
-.history-title{font-size:13px;color:var(--text-dim);margin-bottom:10px}
-.history-chips{display:flex;flex-wrap:wrap;gap:6px}
-.history-chip{background:var(--surface);border:1px solid var(--border);color:var(--text-muted);border-radius:14px;padding:5px 12px;font-size:13px;cursor:pointer;transition:all .15s}
-.history-chip:hover{border-color:var(--accent);color:var(--text)}
-/* ── フォーム ── */
-.form-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
-.form-card h3{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--accent)}
-.form-row{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
-.form-row input,.form-row select,.form-input,.form-select{padding:8px 12px;background:var(--border);border:1px solid var(--input-border);border-radius:6px;color:var(--text);font-size:13px;font-family:inherit}
-.form-input{width:100%;margin-bottom:10px}
-.form-row input:focus,.form-row select:focus,.form-input:focus,.form-select:focus{outline:none;border-color:var(--accent)}
-.weekday-picker{display:flex;gap:6px;flex-wrap:wrap}
-.wd-btn{padding:5px 10px;border:1px solid var(--text-faint);border-radius:6px;cursor:pointer;font-size:12px;background:transparent;color:var(--text-muted);font-family:inherit;transition:all .2s}
-.wd-btn.active{background:var(--border);border-color:var(--accent);color:var(--accent)}
-/* ── ステータス表示 ── */
-.status-bar{padding:8px 14px;border-radius:6px;font-size:13px;margin-bottom:12px;display:none}
-.status-bar.show{display:block}
-.status-bar.info{background:var(--border);color:var(--accent)}
-.status-bar.success{background:#1b5e20;color:#a5d6a7}
-.status-bar.error{background:#b71c1c;color:#ffcdd2}
-/* ── 設定 ── */
-.setting-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
-.setting-row:last-child{border-bottom:none}
-.setting-label{width:160px;font-size:13px;color:var(--text-muted)}
-.setting-value{flex:1}
-/* ── タグ提案モーダル ── */
-.modal-overlay{display:none;position:fixed;inset:0;background:var(--overlay);z-index:100;align-items:center;justify-content:center}
-.modal-overlay.show{display:flex}
-.modal{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:600px;width:90%;max-height:80vh;overflow-y:auto}
-.modal h2{font-size:16px;font-weight:700;margin-bottom:16px;color:var(--accent)}
-.suggestion-item{display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface);border-radius:8px;margin-bottom:8px}
-.suggestion-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent)}
-.suggestion-text{flex:1;font-size:13px}
-.suggestion-arrow{color:var(--accent);font-size:16px}
-.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
-/* ── カテゴリ変更ドロップダウン ── */
-.cat-change-wrap{position:relative;display:inline-block}
-.cat-change-menu{display:none;position:absolute;right:0;top:100%;z-index:50;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:4px;min-width:110px;box-shadow:0 4px 12px var(--shadow)}
-.cat-change-menu.open{display:block}
-.cat-change-item{display:block;width:100%;text-align:left;padding:5px 10px;font-size:12px;border:none;background:transparent;color:var(--text);cursor:pointer;border-radius:4px;font-family:inherit}
-.cat-change-item:hover{background:var(--border)}
-/* ── サブフォルダチップ ── */
-.task-subtag{font-size:10px;padding:2px 7px;border-radius:8px;background:#1a2a10;color:#a5d6a7;border:1px solid #2e7d32;white-space:nowrap;margin-left:4px;cursor:pointer;transition:background .15s}
-.task-subtag:hover{background:#2e4a20}
-.subfolder-add{font-size:10px;padding:2px 7px;border-radius:8px;background:transparent;color:var(--text-faint);border:1px dashed var(--text-faint);white-space:nowrap;margin-left:4px;cursor:pointer;transition:all .15s;font-family:inherit}
-.subfolder-add:hover{border-color:#2e7d32;color:#a5d6a7}
-/* ── サブフォルダメニュー ── */
-.subfolder-wrap{position:relative;display:inline-flex;align-items:center}
-.subfolder-menu{display:none;position:absolute;left:0;top:calc(100% + 4px);z-index:60;background:var(--bg);border:1px solid #2e7d32;border-radius:8px;padding:6px;min-width:160px;box-shadow:0 4px 16px var(--shadow)}
-.subfolder-menu.open{display:block}
-.subfolder-item{display:block;width:100%;text-align:left;padding:5px 10px;font-size:12px;border:none;background:transparent;color:var(--text);cursor:pointer;border-radius:4px;font-family:inherit;white-space:nowrap}
-.subfolder-item:hover{background:var(--border)}
-.subfolder-item.active{color:#a5d6a7;font-weight:600}
-.subfolder-new-input{width:100%;padding:4px 8px;background:var(--border);border:1px solid var(--input-border);border-radius:4px;color:var(--text);font-size:12px;font-family:inherit;margin-top:4px}
-.subfolder-new-input:focus{outline:none;border-color:#4caf50}
-/* ── 一括インポート ── */
-.import-preview{display:flex;flex-direction:column;gap:5px;max-height:280px;overflow-y:auto;margin:10px 0}
-.import-item{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface);border-radius:6px;border:1px solid var(--border)}
-.import-item-text{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.import-item-cat{padding:4px 8px;background:var(--border);border:1px solid var(--input-border);border-radius:4px;color:var(--text);font-size:12px;font-family:inherit;flex-shrink:0}
-.import-item-remove{background:transparent;border:none;color:var(--text-faint);cursor:pointer;font-size:13px;padding:0 4px;flex-shrink:0;line-height:1}
-.import-item-remove:hover{color:#e53935}
-.import-paste-area{width:100%;padding:10px 12px;background:var(--border);border:1px solid var(--input-border);border-radius:6px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical;min-height:140px}
-.import-paste-area:focus{outline:none;border-color:var(--accent)}
-.score-badge{font-size:10px;padding:2px 6px;border-radius:6px;white-space:nowrap;margin-left:4px;cursor:default}
-.badge-hot{background:#3b1010;color:#ff6b6b;border:1px solid #7f1d1d}
-.badge-warn{background:#2a2010;color:#ffd54f;border:1px solid #7f6000}
-.badge-due{background:#1a2a10;color:#69f0ae;border:1px solid #1b5e20}
-/* ── Inbox カテゴリボタン ── */
-.cat-btns{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
-.cat-btn{font-size:10px;padding:2px 8px;border-radius:10px;border:1px solid;cursor:pointer;font-family:inherit;transition:opacity .15s;white-space:nowrap}
-.cat-btn:hover{opacity:.75}
-.cat-btn-仕事{background:#1565c0;color:#90caf9;border-color:#1976d2}
-.cat-btn-プライベート{background:#6a1b9a;color:#ce93d8;border-color:#7b1fa2}
-.cat-btn-買い物{background:#2e7d32;color:#a5d6a7;border-color:#388e3c}
-.cat-btn-学習{background:#e65100;color:#ffcc80;border-color:#f4511e}
-.cat-btn-その他{background:#37474f;color:#b0bec5;border-color:#546e7a}
-/* ── 空状態 ── */
-.empty{text-align:center;color:var(--text-faint);padding:40px 20px;font-size:14px}
-/* ── 完了済みチェック ── */
-.done-mark{color:#4caf50;font-size:16px}
-/* ── チャット ── */
-#pane-chat{display:none}
-#pane-chat.active{padding:0;display:flex;flex-direction:column}
-.chat-messages{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px}
-.chat-row{display:flex;flex-direction:column;max-width:80%}
-.chat-row.user{align-self:flex-end;align-items:flex-end}
-.chat-row.ai{align-self:flex-start;align-items:flex-start}
-.chat-bubble{padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
-.chat-row.user .chat-bubble{background:var(--border);color:var(--text);border-bottom-right-radius:4px}
-.chat-row.ai .chat-bubble{background:var(--surface);border:1px solid var(--border);color:var(--text);border-bottom-left-radius:4px}
-.chat-row.ai.thinking .chat-bubble{color:var(--text-dim)}
-.chat-meta{font-size:11px;color:var(--text-faint);margin-top:3px;padding:0 4px}
-.chat-input-bar{border-top:1px solid var(--border);padding:12px 16px;display:flex;gap:8px;flex-shrink:0;background:var(--bg)}
-.chat-input-bar textarea{flex:1;padding:9px 12px;background:#0a1f0a;border:2px solid #2e7d32;border-radius:8px;color:var(--text);font-size:14px;font-family:inherit;resize:none;height:44px;max-height:120px;overflow-y:auto;line-height:1.5}
-.chat-input-bar textarea:focus{outline:none;border-color:#4caf50}
-.chat-actions-bar{display:flex;align-items:center;gap:6px;padding:0 16px 10px;flex-shrink:0}
-/* ── Inbox 入力バー（下固定） ── */
-.inbox-body{flex:1;overflow-y:auto;padding:12px 16px 8px}
-.inbox-add-bar{flex-shrink:0;background:var(--surface);border-top:1px solid var(--border);padding:10px 14px}
-.inbox-add-row{display:flex;gap:8px;margin-bottom:6px}
-.inbox-add-row input{flex:1;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:inherit}
-.inbox-add-row input:focus{outline:none;border-color:var(--accent)}
-.inbox-tool-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.inbox-due-input{padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:inherit;width:130px}
-.inbox-due-input:focus{outline:none;border-color:var(--accent)}
-.inbox-date-hint{font-size:11px;color:var(--accent);padding:2px 0;display:none}
-.inbox-opts-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
-.quick-shortcut{padding:3px 8px;font-size:11px;background:var(--surface-deep);border:1px solid var(--border);border-radius:5px;color:#a0b4cc;cursor:pointer}
-.quick-shortcut:hover{border-color:var(--accent);color:var(--text)}
-.longterm-toggle{opacity:.45;transition:opacity .15s,background .15s}
-.longterm-toggle.active{opacity:1;background:var(--border);border-color:var(--accent);color:var(--accent)}
-/* ── ホーム画面 ── */
-#pane-home.active{display:flex;flex-direction:column;padding:0}
-.home-body{flex:1;overflow-y:auto}
-.home-top{padding:14px 16px 8px;display:flex;align-items:center;gap:10px}
-.home-appname{font-size:20px;font-weight:700;color:var(--text);flex:1}
-.home-inbox-pill{display:flex;align-items:center;gap:5px;padding:4px 12px;background:var(--surface);border:1px solid var(--border);border-radius:20px}
-.home-inbox-num{font-size:16px;font-weight:700;color:var(--accent);line-height:1.2}
-.home-inbox-lbl{font-size:11px;color:var(--text-muted)}
-.home-inbox-area{padding:0 16px 8px}
-.home-nav-section{padding:10px 16px 14px;border-top:1px solid var(--divider)}
-.home-nav-title{font-size:10px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px}
-/* ── Auto split banner ── */
-#auto-split-banner{background:var(--surface);border:1px solid var(--accent);border-radius:8px;padding:9px 14px;margin-bottom:10px;font-size:13px;color:var(--accent);cursor:pointer;align-items:center;gap:8px}#auto-split-banner:hover{background:var(--border)}
-.home-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.home-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px 16px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;display:flex;flex-direction:column;align-items:center;gap:6px;user-select:none;-webkit-user-select:none;outline:none}
-.home-card:hover,.home-card.focused{border-color:var(--accent);background:var(--surface-deep)}
-.home-card.focused{box-shadow:0 0 0 2px var(--accent-glow)}
-.home-icon{display:flex;align-items:center;justify-content:center;width:30px;height:30px}
-.home-label{font-size:14px;font-weight:600;color:var(--text)}
-.home-badge{font-size:11px;padding:2px 9px;border-radius:8px;background:var(--border);color:var(--accent);min-width:28px}
-/* ── 重要度 ── */
-.imp-btn{font-size:11px;padding:2px 7px;border-radius:5px;cursor:pointer;border:1px solid transparent;font-family:inherit;background:transparent;white-space:nowrap;transition:all .15s}
-.imp-btn.imp-high{background:#3d1515;color:#ef9a9a;border-color:#c62828}
-.imp-btn.imp-medium{background:#2a2210;color:#fff176;border-color:#f9a825}
-.imp-btn.imp-low{background:#1a2a10;color:#a5d6a7;border-color:#2e7d32}
-.imp-btn:not(.imp-high):not(.imp-medium):not(.imp-low){color:var(--text-faint);border-color:#333}
-/* ── 優先順位ページ ── */
-.sort-item{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--surface);border-radius:8px;border:1px solid var(--border);margin-bottom:5px;cursor:default}
-.sort-item.drag-over{border-top:2px solid var(--accent);margin-top:-2px}
-.sort-item.dragging{opacity:.4}
-.sort-drag-handle{color:#444;cursor:grab;padding:0 3px;font-size:16px;flex-shrink:0;user-select:none}
-.sort-drag-handle:active{cursor:grabbing}
-.sort-text{flex:1;font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sort-score{font-size:11px;color:var(--text-faint);flex-shrink:0}
-/* ── ダッシュボード ── */
-.dash-section{margin-bottom:24px}
-.dash-section-title{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
-.dash-section-title h2{font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px}
-.dash-section-title .count{font-size:11px;padding:2px 8px;border-radius:8px;background:var(--border);color:var(--accent)}
-.dash-date-group{margin-bottom:14px}
-.dash-date-label{font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.5px;margin-bottom:6px;padding:3px 0}
-.dash-item{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--surface);border-radius:8px;border-left:3px solid transparent;margin-bottom:5px;transition:border-color .15s}
-.dash-item:hover{border-left-color:var(--accent)}
-.dash-item.type-task{border-left-color:#1565c0}
-.dash-item.type-recurring{border-left-color:#6a1b9a}
-.dash-item.type-checklist{border-left-color:#2e7d32}
-.dash-item-icon{font-size:14px;flex-shrink:0;width:20px;text-align:center}
-.dash-item-body{flex:1;min-width:0}
-.dash-item-text{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.dash-item-meta{font-size:11px;color:var(--text-dim);margin-top:2px}
-.dash-item-actions{display:flex;gap:5px;flex-shrink:0}
-.cl-mini-bar{height:4px;background:var(--border);border-radius:2px;margin-top:5px;overflow:hidden}
-.cl-mini-bar-fill{height:100%;background:#4caf50;border-radius:2px;transition:width .3s}
-/* ── ドラッグ並び替え ── */
-.dash-drag-handle{color:#444;cursor:grab;padding:0 4px;font-size:16px;flex-shrink:0;user-select:none;line-height:1}
-.dash-drag-handle:active{cursor:grabbing}
-.task-drag-handle{color:#444;cursor:grab;padding:0 4px;font-size:16px;flex-shrink:0;user-select:none;line-height:1}
-.task-drag-handle:active{cursor:grabbing}
-.task-item.drag-over{border-top:2px solid var(--accent);margin-top:-2px}
-.task-item.dragging{opacity:.4}
-.cat-drag-handle{color:#444;cursor:grab;padding:0 6px;font-size:16px;user-select:none;line-height:1;flex-shrink:0}
-.cat-drag-handle:active{cursor:grabbing}
-.cat-section.cat-dragging{opacity:.4}
-.cat-section.drag-over-cat{border-top:2px solid var(--accent);margin-top:-2px}
-.dash-item[draggable=true]{transition:border-color .15s,opacity .15s}
-.dash-item.drag-over{border-top:2px solid var(--accent);margin-top:-2px}
-.dash-item.dragging{opacity:.4}
-/* ── タスク期日バッジ ── */
-.task-due{font-size:11px;padding:2px 6px;border-radius:6px;background:#1a2a10;color:#69f0ae;border:1px solid #1b5e20;white-space:nowrap;margin-left:4px;cursor:default}
-.task-due.overdue{background:#2a1010;color:#ff7043;border-color:#7f1d1d}
-/* ── 日記/ブログ共通 ── */
-.writing-mode-switch{display:flex;gap:6px;margin-bottom:16px}
-.mode-btn{flex:1;padding:9px;border:1px solid var(--text-faint);border-radius:8px;background:transparent;color:var(--text-muted);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s}
-.mode-btn.active{background:var(--border);border-color:var(--accent);color:var(--accent);font-weight:600}
-.diary-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.diary-date-picker{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:8px 12px;font-family:inherit;cursor:pointer}
-.diary-date-picker:focus{outline:none;border-color:var(--accent)}
-.diary-date-nav{background:transparent;border:1px solid var(--text-faint);color:var(--text-muted);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:16px;line-height:1;min-height:36px}
-.diary-date-nav:hover{border-color:var(--accent);color:var(--accent)}
-.writing-textarea{width:100%;min-height:240px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:"Meiryo","Segoe UI",sans-serif;padding:14px;resize:vertical;line-height:1.7;transition:border-color .2s}
-.writing-textarea:focus{outline:none;border-color:var(--accent)}
-.diary-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
-.diary-save-status{font-size:12px;color:var(--text-dim)}
-.diary-history{margin-top:24px}
-.diary-history-title{font-size:13px;color:var(--text-dim);margin-bottom:10px;font-weight:600;letter-spacing:.5px}
-.diary-history-item{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--surface);border-radius:8px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;transition:border-color .15s}
-.diary-history-item:hover{border-color:var(--accent)}
-.diary-history-item.active-item{border-color:var(--accent);background:var(--surface-deep)}
-.diary-history-date{font-size:13px;font-weight:600;color:var(--accent);white-space:nowrap}
-.diary-history-preview{flex:1;font-size:12px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* ── AI提案パネル ── */
-.writing-split-area{display:block}
-.writing-split-area.split{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
-.writing-split-area.split .writing-textarea{min-height:420px}
-.writing-split-area.split .suggest-panel{margin-top:0;max-height:520px;overflow-y:auto}
-.suggest-panel{background:#0d1f35;border:1px solid #1565c0;border-radius:8px;padding:14px;margin-top:12px}
-.suggest-panel-header{display:flex;align-items:center;gap:6px;margin-bottom:10px}
-.suggest-panel-title{font-size:13px;font-weight:600;color:var(--accent);flex:1}
-.suggest-split-btn{display:none}
-.suggest-panel-close{background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px}
-.suggest-panel-close:hover{color:var(--text)}
-.suggest-output{font-size:13px;line-height:1.7;color:var(--text-hover);white-space:pre-wrap;min-height:40px}
-/* ── ブログ ── */
-.blog-form-fields{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
-.blog-title-input{width:100%;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;font-weight:600;font-family:inherit}
-.blog-title-input:focus{outline:none;border-color:var(--accent)}
-.blog-tags-input{width:100%;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit}
-.blog-tags-input:focus{outline:none;border-color:var(--accent)}
-.blog-list-item{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;background:var(--surface);border-radius:8px;border:1px solid var(--border);margin-bottom:6px;cursor:pointer;transition:border-color .15s}
-.blog-list-item:hover{border-color:var(--accent)}
-.blog-list-item.active-item{border-color:var(--accent);background:var(--surface-deep)}
-.blog-list-title{font-size:14px;font-weight:600;color:var(--text)}
-.blog-list-meta{font-size:11px;color:var(--text-faint);margin-top:2px}
-.blog-list-preview{font-size:12px;color:var(--text-dim);margin-top:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.blog-list-tags{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
-.blog-tag{font-size:11px;padding:1px 7px;border-radius:10px;background:#1a2e1a;color:#69f0ae;border:1px solid #1b5e20}
-/* ── 分割表示ボタン（日記/ブログ） ── */
-.split-view-btn{background:var(--border);border:1px solid var(--accent);color:var(--accent);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:13px;font-family:inherit;font-weight:600;transition:all .2s;white-space:nowrap}
-.split-view-btn:hover{background:var(--input-border)}
-.split-view-btn.active{background:var(--accent);color:#000}
-/* ── 語学タブ ── */
-.lang-subtabs{display:flex;gap:6px;margin-bottom:16px}
-.lang-subtab-btn{flex:1;padding:8px;border:1px solid var(--text-faint);border-radius:8px;background:transparent;color:var(--text-muted);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s}
-.lang-subtab-btn.active{background:var(--border);border-color:var(--accent);color:var(--accent);font-weight:600}
-.lang-practice-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px}
-.lang-practice-box h4{font-size:13px;color:var(--accent);margin-bottom:10px;font-weight:600}
-.lang-problem{font-size:14px;line-height:1.7;white-space:pre-wrap;color:var(--text)}
-.lang-answer-row{display:flex;gap:8px;margin-top:10px}
-.lang-answer-input{flex:1;padding:9px 12px;background:#0a1f0a;border:2px solid #2e7d32;border-radius:8px;color:var(--text);font-size:14px;font-family:inherit}
-.lang-answer-input:focus{outline:none;border-color:#4caf50}
-.lang-correction{background:#0d1f35;border:1px solid #1565c0;border-radius:8px;padding:12px;margin-top:10px;font-size:13px;line-height:1.7;color:var(--text-hover);white-space:pre-wrap;display:none}
-.lang-correction.show{display:block}
-.lang-save-card-row{display:flex;gap:8px;margin-top:10px;align-items:center;display:none}
-.lang-save-card-row.show{display:flex}
-.flashcard-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px}
-.flashcard-front{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px}
-.flashcard-back{font-size:13px;color:var(--text-hover);display:none}
-.flashcard-back.show{display:block}
-.flashcard-example{font-size:12px;color:#69f0ae;font-style:italic;margin-top:4px;display:none}
-.flashcard-example.show{display:block}
-.flashcard-meta{font-size:11px;color:var(--text-faint);margin-top:6px}
-.review-rate-btns{display:flex;gap:8px;margin-top:10px}
-.review-rate-btn{flex:1;padding:9px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;font-weight:600;transition:opacity .2s}
-.review-rate-btn:hover{opacity:.85}
-.btn-forget{background:#c62828;color:#fff}
-.btn-hard{background:#f9a825;color:#000}
-.btn-perfect{background:#2e7d32;color:#fff}
-.review-progress{font-size:12px;color:var(--text-dim);margin-bottom:12px}
-/* ── 問題ごとの回答ブロック ── */
-.lang-q-block{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px}
-.lang-q-label{font-size:13px;font-weight:700;color:var(--accent);margin-bottom:8px;letter-spacing:.3px}
-.lang-correction{background:#0d1f35;border:1px solid #1565c0;border-radius:8px;padding:12px;margin-top:10px;font-size:13px;line-height:1.7;color:var(--text-hover);white-space:pre-wrap;display:none}
-.lang-correction.show{display:block}
-/* ── 議論チャット ── */
-.lang-discuss-wrap{margin-top:12px;border-top:1px solid var(--border);padding-top:12px}
-.lang-discuss-label{font-size:12px;color:var(--text-dim);margin-bottom:8px}
-.lang-discuss-history{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;max-height:300px;overflow-y:auto}
-.lang-discuss-msg{padding:9px 12px;border-radius:8px;font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
-.lang-discuss-user{background:var(--border);color:var(--text);align-self:flex-end;max-width:85%}
-.lang-discuss-ai{background:var(--surface);border:1px solid var(--border);color:var(--text-hover);align-self:flex-start;max-width:90%}
-.lang-discuss-input-row{display:flex;gap:8px;align-items:flex-end}
-.lang-discuss-input-row textarea{flex:1;padding:8px 12px;background:#0a1f0a;border:2px solid #2e7d32;border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;resize:none;line-height:1.5}
-.lang-discuss-input-row textarea:focus{outline:none;border-color:#4caf50}
-/* ── テーマ切り替えボタン ── */
-.theme-btn{padding:7px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text-muted);font-size:13px;cursor:pointer;font-family:inherit;transition:all .2s}
-.theme-btn:hover{border-color:var(--accent);color:var(--text)}
-.theme-btn.active{border-color:var(--accent);background:var(--border);color:var(--text);font-weight:600}
-/* ── FAB (タスク追加) ── */
-.fab-add{position:fixed;bottom:24px;right:20px;z-index:80;display:none}
-.fab-add button{width:56px;height:56px;border-radius:50%;background:var(--accent);color:#000;border:none;font-size:28px;font-weight:300;line-height:1;cursor:pointer;box-shadow:0 4px 20px var(--shadow);transition:transform .15s,opacity .15s}
-.fab-add button:hover{transform:scale(1.08)}
-/* ── クイック追加オーバーレイ ── */
-.quick-add-overlay{position:fixed;bottom:0;left:0;right:0;z-index:85;background:var(--surface);border-top:2px solid var(--accent);padding:14px 16px 20px;box-shadow:0 -6px 24px var(--shadow);display:none}
-.quick-add-overlay-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.quick-add-overlay-header span{font-size:14px;font-weight:600;color:var(--text)}
-.quick-add-overlay-close{background:transparent;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:0 4px;line-height:1}
-/* ── inboxヘッダー ── */
-.inbox-list-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:4px 0}
-/* ── タスク編集モーダル ── */
-.edit-modal-row{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
-.edit-modal-row input,.edit-modal-row select{flex:1;padding:8px 12px;background:var(--border);border:1px solid var(--input-border);border-radius:6px;color:var(--text);font-size:13px;font-family:inherit}
-.edit-modal-row input:focus,.edit-modal-row select:focus{outline:none;border-color:var(--accent)}
-/* ── ダッシュボードカテゴリバッジ（タスク行先頭） ── */
-.dash-cat-badge{font-size:10px;padding:1px 7px;border-radius:8px;font-weight:600;white-space:nowrap;flex-shrink:0;align-self:center}
+/* Same palette as the author's other local apps, light and dark. */
+:root{
+  --bg:#ffffff;--side:#f7f7f8;--raise:#f0f0f2;--fg:#111111;--muted:#5c5c5c;--faint:#8f8f8f;--line:#e4e4e7;
+  --accent:#1a5fd0;--on-accent:#ffffff;--accent-soft:#e8f0fc;--crit:#c4202c;--crit-soft:#fde9eb;--warn:#a65c00;--warn-soft:#fff1db;--ok:#24773f;--ok-soft:#e4f4e9;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.06);
+  --hero:radial-gradient(1200px 400px at 50% -120px,#e8f0fc 0%,rgba(232,240,252,0) 70%);
+  --sans:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b0b0b;--side:#131313;--raise:#1c1c1c;--fg:#f2f2f2;--muted:#a8a8a8;--faint:#777777;--line:#2a2a2a;
+  --accent:#7fb0ff;--on-accent:#0b0b0b;--accent-soft:#14233b;--crit:#ff7b86;--crit-soft:#3a1418;--warn:#f5b553;--warn-soft:#33240b;--ok:#7fd49c;--ok-soft:#10291a;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  --hero:radial-gradient(1200px 400px at 50% -120px,#14233b 0%,rgba(20,35,59,0) 70%);
+  color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0b0b0b;--side:#131313;--raise:#1c1c1c;--fg:#f2f2f2;--muted:#a8a8a8;--faint:#777777;--line:#2a2a2a;
+  --accent:#7fb0ff;--on-accent:#0b0b0b;--accent-soft:#14233b;--crit:#ff7b86;--crit-soft:#3a1418;--warn:#f5b553;--warn-soft:#33240b;--ok:#7fd49c;--ok-soft:#10291a;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  --hero:radial-gradient(1200px 400px at 50% -120px,#14233b 0%,rgba(20,35,59,0) 70%);
+  color-scheme:dark;}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--fg)}
+body{font:15px/1.65 var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent);text-underline-offset:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+@media (max-width:640px){.wrap{padding:0 16px}}
+
+/* Top bar */
+header.top{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+header.top .wrap{display:flex;align-items:center;gap:16px;height:56px}
+.brand{font-weight:800;letter-spacing:.01em;font-size:1.05rem;color:var(--fg);text-decoration:none;display:flex;align-items:center;gap:8px}
+.brand i{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,var(--accent),#6d8ff0);display:inline-block}
+.seg{margin-left:auto;display:flex;gap:2px;padding:3px;background:var(--raise);border-radius:999px}
+.seg a{padding:6px 16px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:.9rem;font-weight:600;white-space:nowrap}
+.seg a.on{background:var(--bg);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+@media (max-width:420px){.brand span{display:none}.seg{margin-left:auto}.seg a{padding:6px 13px}}
+.badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:5px;border-radius:9px;background:var(--crit);color:#fff;font-size:11px;line-height:18px;vertical-align:1px;text-align:center}
+.badge:empty{display:none}
+
+section.view{display:none}
+section.view.on{display:block}
+
+/* Hero: the one thing done every day is writing a line */
+.hero{background:var(--hero);padding:56px 0 36px;text-align:center}
+@media (max-width:640px){.hero{padding:32px 0 24px}}
+.hero .date{font-size:.95rem;color:var(--muted);font-weight:600;letter-spacing:.04em}
+.hero h1{font-size:clamp(1.45rem,6.2vw,2.8rem);line-height:1.25;margin:6px 0 24px;font-weight:800;letter-spacing:-.01em;text-wrap:balance}
+.capture{max-width:720px;margin:0 auto;display:flex;align-items:flex-end;gap:8px;padding:8px;background:var(--bg);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);text-align:left}
+.capture:focus-within{border-color:var(--accent)}
+.capture textarea{flex:1;resize:none;border:0;background:transparent;padding:10px 10px;min-height:44px;max-height:40vh;line-height:1.55;font-size:1.05rem;outline:none}
+.hint{margin-top:12px;font-size:.82rem;color:var(--faint)}
+
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:0 16px;min-height:44px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--raise)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{filter:brightness(1.08);background:var(--accent)}
+.btn.danger{color:var(--crit)}
+.btn.small{min-height:34px;padding:0 12px;font-size:.85rem;border-radius:10px}
+
+/* Content grid */
+.grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:24px;padding-top:12px;padding-bottom:64px;align-items:start}
+@media (max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--bg);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.panel+.panel{margin-top:24px}
+.panel-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.panel-head h2{font-size:.95rem;margin:0;font-weight:700}
+.panel-head .count{color:var(--faint);font-size:.85rem;font-variant-numeric:tabular-nums}
+.panel-head .tools{margin-left:auto;display:flex;align-items:center;gap:2px}
+.icon-btn{background:none;border:0;color:var(--muted);min-width:36px;min-height:36px;border-radius:10px;cursor:pointer;font-size:1.05rem}
+.icon-btn:hover{background:var(--raise);color:var(--fg)}
+.icon-btn:disabled{opacity:.3;cursor:default;background:none}
+.panel-head .today-link{font-size:.82rem;margin-right:4px}
+
+ul.rows{list-style:none;margin:0;padding:0}
+.row{display:flex;align-items:flex-start;gap:12px;padding:12px 18px;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .main{flex:1;min-width:0;overflow-wrap:anywhere}
+.row .sub{font-size:.8rem;color:var(--muted);margin-top:2px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+.row.is-done .title{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--line)}
+.row .open{cursor:pointer}
+.row .open:hover .title{color:var(--accent)}
+.check{appearance:none;-webkit-appearance:none;width:20px;height:20px;border:1.5px solid var(--faint);border-radius:50%;margin:2px 0 0;flex-shrink:0;cursor:pointer;display:grid;place-content:center}
+.check:checked{background:var(--ok);border-color:var(--ok)}
+.check:checked::after{content:"";width:9px;height:5px;border:2px solid #fff;border-top:0;border-right:0;transform:rotate(-45deg) translate(1px,-1px)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:9px;flex-shrink:0}
+.dot.done{background:transparent;border:1.5px solid var(--faint)}
+.dot.review{background:var(--warn)}
+.tag{display:inline-block;font-size:.72rem;font-weight:600;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.tag.warn{background:var(--warn-soft);color:var(--warn)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.plain{background:var(--raise);color:var(--muted)}
+.due{font-variant-numeric:tabular-nums}
+.due.over{color:var(--crit);font-weight:700}
+.due.soon{color:var(--warn);font-weight:700}
+.more{background:none;border:0;color:var(--faint);min-width:32px;min-height:32px;border-radius:8px;cursor:pointer;font-size:1.1rem;line-height:1}
+.more:hover{background:var(--raise);color:var(--fg)}
+.menu{display:flex;gap:6px;margin-top:8px}
+.empty{color:var(--faint);font-size:.9rem;padding:18px;text-align:center}
+.edit-line{display:flex;gap:6px;flex:1}
+.edit-line input{flex:1;min-width:0;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+
+/* List view */
+.page-head{padding:40px 0 8px}
+.page-head h1{font-size:clamp(1.6rem,4vw,2.2rem);margin:0;font-weight:800;letter-spacing:-.01em}
+.page-head p{margin:4px 0 0;color:var(--muted)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:16px 0 4px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chips button{flex-shrink:0;border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:7px 16px;cursor:pointer;font-weight:600;color:var(--muted)}
+.chips button.on{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.add{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--side)}
+.add input{flex:1;min-width:0;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.toggle{display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--muted);cursor:pointer}
+.toggle input{accent-color:var(--accent)}
+.list-wrap{padding:16px 0 64px}
+
+/* Review view */
+.review-grid{display:grid;gap:24px;padding:16px 0 64px}
+.card{padding:16px 18px;border-top:1px solid var(--line)}
+.card:first-child{border-top:0}
+.card .name{font-weight:700;font-size:1.02rem}
+.card .fields{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.card .actions{display:flex;gap:8px;margin-top:12px}
+footer{padding:8px 0 40px;font-size:.82rem;color:var(--faint);display:flex;gap:18px}
+footer a{color:var(--faint)}
+
+/* Item sheet */
+dialog{border:1px solid var(--line);border-radius:20px;padding:0;background:var(--bg);color:var(--fg);width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 40px);margin:auto;box-shadow:0 24px 64px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(10,10,15,.45);backdrop-filter:blur(2px)}
+dialog form{padding:22px 20px 18px}
+dialog .sheet-head{display:flex;align-items:center;justify-content:space-between;margin:-6px -6px 12px 0}
+dialog h3{margin:0;font-size:1.05rem}
+.field{display:block;margin-bottom:14px}
+.field>span{display:block;font-size:.78rem;color:var(--muted);margin-bottom:5px;font-weight:600}
+.field input:not([type=checkbox]),.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--side)}
+.field input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.field textarea{min-height:96px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:480px){.two{grid-template-columns:1fr}}
+.sheet-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.sheet-actions .spacer{flex:1}
+
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 18px;border-radius:12px;font-size:.9rem;max-width:calc(100vw - 32px);display:none;z-index:50;box-shadow:var(--shadow)}
 </style>
 </head>
 <body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="#today"><i aria-hidden="true"></i><span>ZzzMemo</span></a>
+  <nav class="seg" aria-label="画面">
+    <a href="#today" data-tab="today">今日</a>
+    <a href="#list" data-tab="list">一覧</a>
+    <a href="#review" data-tab="review">確認<span class="badge" id="review-badge"></span></a>
+  </nav>
+</div></header>
 
-<!-- ── トップナビ ── -->
-<div class="bottom-nav">
-  <button class="nav-btn active" data-tab="home" onclick="switchTab('home')">
-    <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
-    <span class="nav-label">ホーム</span>
-  </button>
-  <button class="nav-btn" data-tab="dashboard" onclick="switchTab('dashboard')">
-    <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg></span>
-    <span class="nav-label">ダッシュボード</span>
-  </button>
-  <button class="nav-btn" data-tab="diary" onclick="switchTab('diary')">
-    <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
-    <span class="nav-label">日記</span>
-  </button>
-  <button class="nav-btn" data-tab="lang" onclick="switchTab('lang')">
-    <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span>
-    <span class="nav-label">語学</span>
-  </button>
-  <button class="nav-btn" data-tab="chat" onclick="switchTab('chat')">
-    <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></span>
-    <span class="nav-label">チャット</span>
-  </button>
-</div>
+<main>
+  <section class="view" id="today">
+    <div class="hero"><div class="wrap">
+      <div class="date" id="hero-date"></div>
+      <h1>いま、何を考えていますか。</h1>
+      <form class="capture" id="capture">
+        <textarea id="capture-text" rows="1" placeholder="1行に1つ書く" aria-label="メモを書く" enterkeyhint="send"></textarea>
+        <button class="btn primary" type="submit">追加</button>
+      </form>
+      <div class="hint">仕分けはあとでエージェントが行います。Shift+Enterで改行、複数行は1行ずつ入ります。</div>
+    </div></div>
 
-<!-- ステータスバー -->
-<div id="status-bar" class="status-bar"></div>
-
-<!-- ── ホーム ── -->
-<div id="pane-home" class="pane active">
-  <div class="inbox-add-bar" style="border-top:none;border-bottom:1px solid var(--border)">
-    <div class="inbox-add-row">
-      <input id="quick-input" aria-label="新しいタスク" placeholder="タスクを入力… 「明日」「来週」など日時も自然言語で" oninput="onQuickInput(this.value)" onkeydown="handleQuickAdd(event)" autocomplete="off" autocorrect="off">
-      <button class="btn btn-ghost mic-btn" data-target="quick-input" onclick="startVoice('quick-input')" title="音声入力" style="padding:0 10px;font-size:18px;display:none">🎤</button>
-      <button class="btn btn-primary" onclick="addTask()">追加</button>
-    </div>
-    <div id="quick-date-hint" class="inbox-date-hint"></div>
-    <div class="inbox-opts-row">
-      <input id="quick-due-date" type="date" class="inbox-due-input" aria-label="期日（任意）" title="期日">
-      <button class="quick-shortcut" onclick="setQuickDate(0)" title="今日">今日</button>
-      <button class="quick-shortcut" onclick="setQuickDate(1)" title="明日">明日</button>
-      <button class="quick-shortcut" onclick="setQuickDate(7)" title="来週">来週</button>
-      <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-        <button id="imp-quick-btn" class="imp-btn imp-medium" onclick="cycleQuickImp()" title="重要度">🟡中</button>
-        <button id="longterm-quick-btn" class="btn btn-ghost btn-sm longterm-toggle" onclick="toggleQuickLongterm()" title="長期タスクとして追加">🗂 長期</button>
-        <button class="btn btn-warning btn-sm" onclick="runSort()">✨ AI分類</button>
-      </span>
-    </div>
-    <span id="sort-status" style="font-size:12px;color:var(--text-dim)"></span>
-  </div>
-  <div class="home-body">
-    <div class="home-top">
-      <span class="home-appname">ZzzMemo</span>
-      <div class="home-inbox-pill">
-        <span class="home-inbox-num" id="home-inbox-count">0</span>
-        <span class="home-inbox-lbl">inbox</span>
-      </div>
-    </div>
-    <div class="home-inbox-area">
-      <div id="inbox-list" class="task-list"></div>
-    </div>
-    <div class="home-nav-section">
-      <div class="home-grid" id="home-grid">
-        <div class="home-card focused" tabindex="0" onclick="switchTab('tasks')">
-          <span class="home-icon"><svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg></span>
-          <span class="home-label">タスク</span>
-          <span class="home-badge" id="home-badge-tasks">0</span>
-        </div>
-        <div class="home-card" tabindex="0" onclick="switchTab('longterm')">
-          <span class="home-icon"><svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg></span>
-          <span class="home-label">長期タスク</span>
-        </div>
-        <div class="home-card" tabindex="0" onclick="switchTab('checklists')">
-          <span class="home-icon"><svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect width="6" height="4" x="9" y="3" rx="1"/><path d="M9 12h6"/><path d="M9 16h6"/></svg></span>
-          <span class="home-label">チェックリスト</span>
-        </div>
-        <div class="home-card" tabindex="0" onclick="switchTab('recurring')">
-          <span class="home-icon"><svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></span>
-          <span class="home-label">定期タスク</span>
-        </div>
-        <div class="home-card" tabindex="0" onclick="switchTab('shopping')">
-          <span class="home-icon"><svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg></span>
-          <span class="home-label">買い物リスト</span>
-          <span class="home-badge" id="shopping-count">0</span>
-        </div>
-        <div class="home-card" tabindex="0" onclick="switchTab('settings')" style="grid-column:span 2">
-          <span class="home-icon"><svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/></svg></span>
-          <span class="home-label">設定</span>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ── チャット ── -->
-<div id="pane-chat" class="pane content">
-  <div class="chat-messages" id="chat-messages">
-    <div class="chat-row ai">
-      <div class="chat-bubble">こんにちは！タスク管理をお手伝いします。<br>「今週のタスクを見せて」「牛乳を買うを追加して」などと話しかけてください。</div>
-    </div>
-  </div>
-  <div class="chat-actions-bar">
-    <button class="btn btn-ghost btn-sm" onclick="sendBriefing()">☀️ 朝のブリーフィング</button>
-    <span id="chat-key-hint" style="font-size:11px;color:var(--text-faint)"></span>
-    <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="clearChat()">履歴クリア</button>
-  </div>
-  <div class="chat-input-bar">
-    <textarea id="chat-input" aria-label="チャットメッセージ" placeholder="メッセージを入力… (Enter で送信 / Shift+Enter で改行)"
-      onkeydown="handleChatKey(event)" oninput="autoResizeChat(this)"></textarea>
-    <button class="btn btn-ghost mic-btn" data-target="chat-input" onclick="startVoice('chat-input')" title="音声入力" style="padding:0 10px;font-size:18px;display:none">🎤</button>
-    <button class="btn btn-primary" onclick="sendChat()" style="height:44px;padding:0 18px">送信</button>
-  </div>
-</div>
-
-<!-- ── ダッシュボード ── -->
-<div id="pane-dashboard" class="pane content">
-  <div id="dashboard-content"></div>
-</div>
-
-
-<!-- ── タスク ── -->
-<div id="pane-tasks" class="pane content">
-  <div class="toolbar">
-    <button class="btn btn-success btn-sm" onclick="bulkComplete()">✓ 選択を完了</button>
-    <button class="btn btn-ghost btn-sm" onclick="selectAll('tasks')">全選択</button>
-    <button class="btn btn-ghost btn-sm" onclick="clearSelection('tasks')">選択解除</button>
-    <span id="selected-count" style="font-size:12px;color:var(--text-dim)"></span>
-    <div class="toolbar-right">
-      <button class="btn btn-ghost btn-sm" onclick="switchTab('dashboard')">📊 ダッシュボード</button>
-      <button class="btn btn-warning btn-sm" onclick="suggestSplits()">✨ AI サブフォルダ提案</button>
-      <button class="btn btn-ghost btn-sm" onclick="toggleTrash()" id="trash-toggle-btn">🗑 ゴミ箱</button>
-    </div>
-  </div>
-  <div style="margin-bottom:10px">
-    <input id="task-search" aria-label="タスク検索" placeholder="🔍 タスクを検索…" oninput="filterTasks(this.value)"
-      style="width:100%;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit">
-  </div>
-  <div id="auto-split-banner" style="display:none" onclick="openSplitsFromBanner()">
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
-    <span id="auto-split-text"></span>
-    <span style="margin-left:auto;font-size:11px;opacity:.7">クリックして確認 →</span>
-  </div>
-  <div id="tasks-list"></div>
-  <!-- ゴミ箱（折りたたみ） -->
-  <div id="trash-section" style="display:none;margin-top:20px">
-    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
-      <span style="font-size:13px;color:var(--text-dim)">🗑 ゴミ箱（完了・削除済み）</span>
-      <button class="btn btn-ghost btn-sm" onclick="loadTrash()">更新</button>
-    </div>
-    <div id="trash-list" class="task-list"></div>
-  </div>
-</div>
-
-<!-- ── 長期タスク ── -->
-<div id="pane-longterm" class="pane content">
-  <div style="padding:8px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text-dim);margin-bottom:14px">
-    📌 件数カウント対象外の長期・将来タスク。タスクタブの <strong>🗂</strong> ボタンで追加できます。
-  </div>
-  <div id="longterm-list"></div>
-</div>
-
-<!-- ── チェックリスト ── -->
-<div id="pane-checklists" class="pane content">
-  <div class="form-card">
-    <div class="form-row" style="align-items:center;margin:0">
-      <h3 style="margin:0;flex:1">新しいチェックリスト</h3>
-      <button id="cl-form-toggle" class="btn btn-ghost btn-sm" onclick="toggleClForm()" aria-expanded="false">▶ 開く</button>
-    </div>
-    <div id="cl-form-body" style="display:none;margin-top:10px">
-      <input id="cl-name" aria-label="チェックリスト名" class="form-input" placeholder="チェックリスト名（例：サッカーの日の持ち物）">
-      <div class="form-row" style="align-items:center;margin-bottom:10px">
-        <label style="font-size:12px;color:var(--text-dim);white-space:nowrap;margin-right:6px">親（任意）</label>
-        <select id="cl-parent" aria-label="親リスト" class="form-select" style="margin:0;flex:1">
-          <option value="">(ルート)</option>
-        </select>
-      </div>
-      <div class="form-row" style="align-items:center;margin-bottom:10px">
-        <label style="font-size:12px;color:var(--text-dim);white-space:nowrap;margin-right:6px">期日（任意）</label>
-        <input id="cl-due-date" aria-label="期日" type="date" class="form-input" style="margin:0;flex:1">
-        <input id="cl-due-time" aria-label="時刻（任意）" type="time" step="300" class="form-input" style="margin:0;width:110px" placeholder="時刻（任意）">
-        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('cl-due-date').value='';document.getElementById('cl-due-time').value=''">クリア</button>
-      </div>
-      <div id="cl-items-inputs">
-        <div class="form-row"><input name="cl-item" aria-label="チェックリストアイテム" placeholder="アイテム 1" class="cl-item-input" style="flex:1"></div>
-        <div class="form-row"><input name="cl-item" aria-label="チェックリストアイテム" placeholder="アイテム 2" class="cl-item-input" style="flex:1"></div>
-      </div>
-      <div class="form-row" style="margin-top:6px">
-        <button class="btn btn-ghost btn-sm" onclick="addClItemInput()">＋ アイテム追加</button>
-        <button class="btn btn-primary" onclick="createChecklist()">作成</button>
-      </div>
-    </div>
-  </div>
-  <div id="checklists-list"></div>
-</div>
-
-<!-- ── 定期タスク ── -->
-<div id="pane-recurring" class="pane content">
-  <div class="form-card">
-    <h3>新しい定期タスク</h3>
-    <input id="rec-text" aria-label="定期タスクのテキスト" class="form-input" placeholder="タスクのテキスト">
-    <div class="form-row">
-      <select id="rec-cat" aria-label="カテゴリ" class="form-select">
-        <option value="">カテゴリ（任意）</option>
-        <option>仕事</option><option>プライベート</option>
-        <option>買い物</option><option>学習</option><option>その他</option>
-      </select>
-      <select id="rec-freq" aria-label="頻度" class="form-select" onchange="updateFreqUI()">
-        <option value="daily">毎日</option>
-        <option value="weekly">毎週</option>
-        <option value="monthly">毎月</option>
-      </select>
-    </div>
-    <div id="rec-weekly-ui" style="display:none;margin-bottom:10px">
-      <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">曜日を選択:</div>
-      <div class="weekday-picker">
-        <button class="wd-btn" data-wd="0">月</button>
-        <button class="wd-btn" data-wd="1">火</button>
-        <button class="wd-btn" data-wd="2">水</button>
-        <button class="wd-btn" data-wd="3">木</button>
-        <button class="wd-btn" data-wd="4">金</button>
-        <button class="wd-btn" data-wd="5">土</button>
-        <button class="wd-btn" data-wd="6">日</button>
-      </div>
-    </div>
-    <div id="rec-monthly-ui" style="display:none;margin-bottom:10px">
-      <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">毎月何日:</div>
-      <input id="rec-dom" aria-label="毎月何日" type="number" min="1" max="31" class="form-input" style="width:100px" placeholder="日">
-    </div>
-    <button class="btn btn-primary" onclick="createRecurring()">登録</button>
-  </div>
-  <div id="recurring-list"></div>
-</div>
-
-<!-- ── 買い物リスト (wishlist) ── -->
-<div id="pane-shopping" class="pane content">
-  <div style="padding:12px 16px 0">
-    <button class="btn btn-ghost btn-sm" onclick="switchTab('home')" style="gap:6px">
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-      ホームに戻る
-    </button>
-  </div>
-  <div class="form-card">
-    <h3>買い物リストに追加</h3>
-    <div class="form-row" style="gap:8px">
-      <input id="shopping-input" class="form-input" list="shopping-datalist"
-             placeholder="商品名（例：シャンプー）"
-             onkeydown="handleWishlistEnter(event,'shopping')" autocomplete="off">
-      <datalist id="shopping-datalist"></datalist>
-      <button class="btn btn-primary" onclick="addWishlistItem('shopping')">追加</button>
-    </div>
-    <div style="margin-top:10px">
-      <button id="shopping-promote-btn" class="btn btn-secondary btn-sm"
-              onclick="promoteAllWishlist('shopping')" style="width:100%">
-        🛒 全部ダッシュボードへ
-      </button>
-    </div>
-  </div>
-  <div id="shopping-list"></div>
-  <div id="shopping-history" class="wishlist-history"></div>
-</div>
-
-<!-- ── 設定 ── -->
-<div id="pane-settings" class="pane content">
-  <div style="padding:12px 16px 0">
-    <button class="btn btn-ghost btn-sm" onclick="switchTab('home')" style="gap:6px">
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-      ホームに戻る
-    </button>
-  </div>
-  <div class="form-card">
-    <h3>アプリの更新</h3>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">キャッシュをクリアして最新バージョンを読み込みます。スマホでうまく更新されないときに使ってください。</p>
-    <button class="btn btn-secondary btn-sm" onclick="clearCacheAndReload()" style="width:100%">🔄 キャッシュをクリアして更新</button>
-  </div>
-  <div class="form-card">
-    <h3>音声入力</h3>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Chrome / Edge のみ対応。マイクボタンをタスク入力・チャットに表示します。</p>
-    <div class="setting-row">
-      <span class="setting-label">音声入力ボタンを表示</span>
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-        <input id="voice-enabled-toggle" type="checkbox" onchange="setVoiceEnabled(this.checked)"
-          style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">
-        <span id="voice-toggle-label" style="font-size:12px;color:var(--text-muted)">無効</span>
-      </label>
-    </div>
-  </div>
-  <div class="form-card">
-    <h3>タブ表示設定</h3>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">不要なタブ・グリッドカードを非表示にできます。ホーム・設定は常に表示されます。</p>
-    <div id="tab-visibility-settings"></div>
-  </div>
-
-  <div class="form-card">
-    <h3>テーマ</h3>
-    <div class="setting-row" style="border-bottom:none">
-      <div class="setting-label">背景テーマ</div>
-      <div class="setting-value" style="display:flex;gap:8px">
-        <button class="theme-btn" data-theme="" onclick="applyTheme('')">⬛ ブラック</button>
-        <button class="theme-btn" data-theme="navy" onclick="applyTheme('navy')">🌊 ネイビー</button>
-        <button class="theme-btn" data-theme="white" onclick="applyTheme('white')">☀️ ホワイト</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="form-card">
-    <h3>AI バックエンド設定</h3>
-    <div class="setting-row">
-      <div class="setting-label">Sort バックエンド</div>
-      <div class="setting-value">
-        <select id="cfg-backend" class="form-select" onchange="saveConfig()">
-          <option value="auto">auto（自動）</option>
-          <option value="gemini">Gemini</option>
-          <option value="ollama">Ollama（ローカル）</option>
-          <option value="anthropic">Anthropic</option>
-        </select>
-      </div>
-    </div>
-    <div class="setting-row">
-      <div class="setting-label">Ollama モデル</div>
-      <div class="setting-value">
-        <input id="cfg-ollama-model" aria-label="Ollamaモデル名" class="form-input" style="margin:0" placeholder="例: phi4" onchange="saveConfig()">
-      </div>
-    </div>
-    <div class="setting-row">
-      <div class="setting-label">Ollama ホスト</div>
-      <div class="setting-value">
-        <input id="cfg-ollama-host" aria-label="OllamaホストURL" class="form-input" style="margin:0" placeholder="http://localhost:11434" onchange="saveConfig()">
-      </div>
-    </div>
-  </div>
-
-  <div class="form-card">
-    <h3>Gemini API キー</h3>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:10px">環境変数 GEMINI_API_KEY が未設定の場合はここに入力してください。ブラウザのローカルストレージに保存されます。</p>
-    <div style="display:flex;gap:8px">
-      <input id="settings-api-key" aria-label="Gemini APIキー" type="password" class="form-input" style="margin:0;flex:1" placeholder="AIzaSy…" autocomplete="new-password">
-      <button class="btn btn-primary" onclick="saveApiKey()">保存</button>
-      <button class="btn btn-ghost btn-sm" onclick="clearApiKey()">削除</button>
-    </div>
-  </div>
-
-  <div class="form-card">
-    <h3>タグ変更提案（AI）</h3>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">
-      既存のタスクのカテゴリを AI が見直し、変更案を提示します。承認したもののみ反映されます。
-    </p>
-    <button class="btn btn-warning" onclick="suggestTags()">🔍 タグ変更を提案</button>
-  </div>
-
-  <div class="form-card">
-    <h3>エクスポート</h3>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">todo タスクをカテゴリ別 Markdown でダウンロードします。</p>
-    <a href="/api/export/markdown" download="tasks.md" class="btn btn-ghost btn-sm">⬇ Markdown でダウンロード</a>
-  </div>
-
-  <div class="form-card">
-    <h3>一括インポート</h3>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">Claude・ChatGPT などの AI が生成したタスクリストをそのまま貼り付けて一括登録できます。</p>
-    <button class="btn btn-primary" onclick="openImportModal()">📋 一括インポートを開く</button>
-  </div>
-
-  <!-- Google 連携 -->
-  <div class="form-card">
-    <h3>Google 連携</h3>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">
-      期日付きタスクを Google Calendar（時刻あり）または Google Tasks（終日）に同期します。<br>
-      事前に <code style="background:var(--border);padding:1px 5px;border-radius:3px">client_secret.json</code> をプロジェクトルートに配置してください。
-    </p>
-    <div id="google-auth-status" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 14px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-      <span id="google-auth-indicator" style="font-size:20px">⏳</span>
-      <span id="google-auth-label" style="font-size:13px;color:var(--text-dim)">確認中…</span>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button id="google-login-btn" class="btn btn-primary btn-sm" onclick="window.location.href='/api/auth/login'" style="display:none">🔑 Googleでログイン</button>
-      <button id="google-sync-btn" class="btn btn-success btn-sm" onclick="runGoogleSync()" style="display:none">🔄 今すぐ同期</button>
-      <button id="google-push-btn" class="btn btn-ghost btn-sm" onclick="runGooglePush()" style="display:none">⬆ Push のみ</button>
-      <button id="google-pull-btn" class="btn btn-ghost btn-sm" onclick="runGooglePull()" style="display:none">⬇ Pull のみ</button>
-      <button id="google-logout-btn" class="btn btn-danger btn-sm" onclick="googleLogout()" style="display:none">ログアウト</button>
-    </div>
-    <div id="google-sync-log" style="font-size:12px;color:var(--text-dim);margin-top:10px"></div>
-    <div id="google-autosync-section" style="display:none;margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <label style="font-size:13px;color:var(--text-muted)">自動同期間隔:</label>
-      <select id="sync-interval" style="background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 10px;font-size:13px">
-        <option value="15">15分</option>
-        <option value="30" selected>30分</option>
-        <option value="60">1時間</option>
-        <option value="180">3時間</option>
-        <option value="0">無効</option>
-      </select>
-      <button class="btn btn-ghost btn-sm" onclick="saveSyncInterval()">保存</button>
-    </div>
-    <!-- タスクリスト対応表 -->
-    <div id="google-tasklist-map-section" style="display:none;margin-top:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:8px">📋 カテゴリ → Google Tasks リスト 対応</div>
-      <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px">カテゴリごとに振り分け先リストを指定できます。未指定はカテゴリ名で新規作成します。</div>
-      <table id="tasklist-map-table" style="width:100%;border-collapse:collapse;font-size:13px"></table>
-      <button class="btn btn-primary btn-sm" onclick="saveTasklistMap()" style="margin-top:10px">💾 対応を保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── 日記/ブログ ── -->
-<div id="pane-diary" class="pane content">
-  <div class="writing-mode-switch">
-    <button id="mode-btn-diary" class="mode-btn active" onclick="setWritingMode('diary')">📅 日記</button>
-    <button id="mode-btn-blog" class="mode-btn" onclick="setWritingMode('blog')">✍️ ブログ</button>
-  </div>
-
-  <!-- 日記セクション -->
-  <div id="writing-diary">
-    <div class="diary-header">
-      <button class="diary-date-nav" onclick="diaryNavDay(-1)" aria-label="前日">‹</button>
-      <input type="date" id="diary-date" class="diary-date-picker" aria-label="日記の日付" onchange="loadDiary()">
-      <button class="diary-date-nav" onclick="diaryNavDay(1)" aria-label="翌日">›</button>
-      <button class="btn btn-ghost btn-sm" onclick="diaryGoToday()">今日</button>
-    </div>
-    <div id="diary-split-area" class="writing-split-area">
-      <div id="diary-editor-col">
-        <textarea id="diary-textarea" class="writing-textarea" placeholder="今日の振り返りを書いてください…" oninput="onDiaryInput()" aria-label="日記本文"></textarea>
-        <div class="diary-actions">
-          <button class="btn btn-success btn-sm" onclick="saveDiaryNow()">💾 保存</button>
-          <button class="btn btn-ghost btn-sm" onclick="requestWritingSuggest('diary')">💡 AIに提案を求める</button>
-          <button id="split-btn-diary" class="split-view-btn" onclick="toggleSplitView('diary')" style="display:none">⬜ 並べて表示</button>
-          <span id="diary-save-status" class="diary-save-status"></span>
-        </div>
-      </div>
-      <div id="suggest-panel-diary" class="suggest-panel" style="display:none">
-        <div class="suggest-panel-header">
-          <span class="suggest-panel-title">💡 AIからの提案</span>
-          <button class="suggest-panel-close" onclick="closeSuggestPanel('diary')" aria-label="閉じる">✕</button>
-        </div>
-        <div id="suggest-output-diary" class="suggest-output"></div>
-      </div>
-    </div>
-    <div class="diary-history">
-      <div class="diary-history-title">過去の日記</div>
-      <div id="diary-history-list"></div>
-    </div>
-  </div>
-
-  <!-- ブログセクション -->
-  <div id="writing-blog" style="display:none">
-    <div class="blog-form-fields">
-      <input id="blog-title" class="blog-title-input" placeholder="タイトルを入力…" aria-label="ブログタイトル" oninput="onBlogInput()">
-      <input id="blog-tags" class="blog-tags-input" placeholder="タグ（カンマ区切り　例: 技術, Python, 日常）" aria-label="タグ" oninput="onBlogInput()">
-    </div>
-    <div id="blog-split-area" class="writing-split-area">
-      <div id="blog-editor-col">
-        <textarea id="blog-textarea" class="writing-textarea" placeholder="本文を書いてください…" oninput="onBlogInput()" aria-label="ブログ本文"></textarea>
-        <div class="diary-actions">
-          <button class="btn btn-success btn-sm" onclick="saveBlogPost()">💾 保存</button>
-          <button class="btn btn-ghost btn-sm" onclick="newBlogPost()">＋ 新規</button>
-          <button class="btn btn-danger btn-sm" id="blog-delete-btn" onclick="deleteBlogPost()" style="display:none">🗑 削除</button>
-          <button class="btn btn-ghost btn-sm" onclick="requestWritingSuggest('blog')">💡 AIに提案を求める</button>
-          <button id="split-btn-blog" class="split-view-btn" onclick="toggleSplitView('blog')" style="display:none">⬜ 並べて表示</button>
-          <span id="blog-save-status" class="diary-save-status"></span>
-        </div>
-      </div>
-      <div id="suggest-panel-blog" class="suggest-panel" style="display:none">
-        <div class="suggest-panel-header">
-          <span class="suggest-panel-title">💡 AIからの提案</span>
-          <button class="suggest-panel-close" onclick="closeSuggestPanel('blog')" aria-label="閉じる">✕</button>
-        </div>
-        <div id="suggest-output-blog" class="suggest-output"></div>
-      </div>
-    </div>
-    <div class="diary-history">
-      <div class="diary-history-title">ブログ記事一覧</div>
-      <div id="blog-list"></div>
-    </div>
-  </div>
-</div>
-
-<!-- ── 語学学習 ── -->
-<div id="pane-lang" class="pane content">
-  <div class="lang-subtabs">
-    <button id="lang-subtab-practice" class="lang-subtab-btn active" onclick="setLangSubtab('practice')">✍️ 英語練習</button>
-    <button id="lang-subtab-review" class="lang-subtab-btn" onclick="setLangSubtab('review')">🃏 カード復習</button>
-    <button id="lang-subtab-cards" class="lang-subtab-btn" onclick="setLangSubtab('cards')">📚 カード一覧</button>
-  </div>
-
-  <!-- 英語練習 -->
-  <div id="lang-practice-pane">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-      <input type="date" id="lang-date" class="diary-date-picker" aria-label="練習日" style="font-size:13px">
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('lang-date').value=todayStr();loadLangPractice()">今日</button>
-      <button class="btn btn-primary btn-sm" onclick="loadLangPractice()">🤖 問題を生成</button>
-      <span id="lang-practice-status" style="font-size:12px;color:var(--text-dim)"></span>
-    </div>
-    <div id="lang-practice-output" class="lang-practice-box" style="display:none">
-      <h4>📝 英語練習問題</h4>
-      <div id="lang-problem-text" class="lang-problem"></div>
-    </div>
-    <!-- 問題ごとの回答欄 (3問分) -->
-    <div id="lang-answer-sections" style="display:none">
-      <div class="lang-q-block">
-        <div class="lang-q-label">問題 1 への回答</div>
-        <textarea class="lang-answer-input" id="lang-answer-1" rows="3" placeholder="Write your English here…" aria-label="問題1 回答欄"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-primary btn-sm" onclick="submitLangAnswer(1)">✏️ 添削する</button>
-          <button id="lang-save-1" class="btn btn-success btn-sm" onclick="saveLangCard(1)" style="display:none">💾 カードに保存</button>
-          <span id="lang-save-status-1" style="font-size:12px;color:#4caf50"></span>
-        </div>
-        <div class="lang-correction" id="lang-correction-1"></div>
-        <div class="lang-discuss-wrap" id="lang-discuss-1" style="display:none">
-          <div class="lang-discuss-label">💬 添削について質問・議論する</div>
-          <div class="lang-discuss-history" id="lang-discuss-history-1"></div>
-          <div class="lang-discuss-input-row">
-            <textarea id="lang-discuss-input-1" rows="2" placeholder="なぜこの表現が自然なの？　など…" aria-label="フォローアップ質問"></textarea>
-            <button class="btn btn-ghost btn-sm" onclick="sendLangDiscuss(1)">送信</button>
+    <div class="wrap grid">
+      <div class="panel">
+        <div class="panel-head">
+          <h2 id="day-label"></h2><span class="count" id="entries-count"></span>
+          <div class="tools">
+            <a href="#today" class="today-link" id="day-today" hidden>今日へ</a>
+            <button type="button" class="icon-btn" id="day-prev" aria-label="前の日">‹</button>
+            <button type="button" class="icon-btn" id="day-next" aria-label="次の日">›</button>
           </div>
         </div>
+        <ul class="rows" id="entries"></ul>
       </div>
-      <div class="lang-q-block">
-        <div class="lang-q-label">問題 2 への回答</div>
-        <textarea class="lang-answer-input" id="lang-answer-2" rows="3" placeholder="Write your English here…" aria-label="問題2 回答欄"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-primary btn-sm" onclick="submitLangAnswer(2)">✏️ 添削する</button>
-          <button id="lang-save-2" class="btn btn-success btn-sm" onclick="saveLangCard(2)" style="display:none">💾 カードに保存</button>
-          <span id="lang-save-status-2" style="font-size:12px;color:#4caf50"></span>
+      <div>
+        <div class="panel">
+          <div class="panel-head"><h2>期日が近いもの</h2><span class="count" id="due-count"></span></div>
+          <ul class="rows" id="due-soon"></ul>
         </div>
-        <div class="lang-correction" id="lang-correction-2"></div>
-        <div class="lang-discuss-wrap" id="lang-discuss-2" style="display:none">
-          <div class="lang-discuss-label">💬 添削について質問・議論する</div>
-          <div class="lang-discuss-history" id="lang-discuss-history-2"></div>
-          <div class="lang-discuss-input-row">
-            <textarea id="lang-discuss-input-2" rows="2" placeholder="なぜこの表現が自然なの？　など…" aria-label="フォローアップ質問"></textarea>
-            <button class="btn btn-ghost btn-sm" onclick="sendLangDiscuss(2)">送信</button>
+        <div class="panel">
+          <div class="panel-head"><h2>未完了のタスク</h2><span class="count" id="tasks-count"></span></div>
+          <ul class="rows" id="open-tasks"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="list">
+    <div class="wrap">
+      <div class="page-head">
+        <h1 id="list-title">一覧</h1>
+        <p id="list-sub"></p>
+      </div>
+      <div class="chips" id="kind-tabs"></div>
+      <div class="list-wrap">
+        <div class="panel">
+          <form class="add" id="add-item">
+            <input id="add-item-title" placeholder="ここに直接追加" aria-label="項目を追加">
+            <button class="btn" type="submit">追加</button>
+          </form>
+          <div class="panel-head">
+            <h2>未完了</h2><span class="count" id="items-count"></span>
+            <div class="tools"><label class="toggle"><input type="checkbox" id="show-done"> 完了も表示</label></div>
           </div>
-        </div>
-      </div>
-      <div class="lang-q-block">
-        <div class="lang-q-label">問題 3 への回答</div>
-        <textarea class="lang-answer-input" id="lang-answer-3" rows="3" placeholder="Write your English here…" aria-label="問題3 回答欄"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-          <button class="btn btn-primary btn-sm" onclick="submitLangAnswer(3)">✏️ 添削する</button>
-          <button id="lang-save-3" class="btn btn-success btn-sm" onclick="saveLangCard(3)" style="display:none">💾 カードに保存</button>
-          <span id="lang-save-status-3" style="font-size:12px;color:#4caf50"></span>
-        </div>
-        <div class="lang-correction" id="lang-correction-3"></div>
-        <div class="lang-discuss-wrap" id="lang-discuss-3" style="display:none">
-          <div class="lang-discuss-label">💬 添削について質問・議論する</div>
-          <div class="lang-discuss-history" id="lang-discuss-history-3"></div>
-          <div class="lang-discuss-input-row">
-            <textarea id="lang-discuss-input-3" rows="2" placeholder="なぜこの表現が自然なの？　など…" aria-label="フォローアップ質問"></textarea>
-            <button class="btn btn-ghost btn-sm" onclick="sendLangDiscuss(3)">送信</button>
-          </div>
+          <ul class="rows" id="items"></ul>
         </div>
       </div>
     </div>
-  </div>
+  </section>
 
-  <!-- カード復習 -->
-  <div id="lang-review-pane" style="display:none">
-    <div id="review-progress" class="review-progress"></div>
-    <div id="review-card-area">
-      <div class="empty" id="review-empty">復習カードはありません 🎉</div>
-    </div>
-  </div>
-
-  <!-- カード一覧 -->
-  <div id="lang-cards-pane" style="display:none">
-    <div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-      <button class="btn btn-ghost btn-sm" onclick="loadAllCards()">更新</button>
-    </div>
-    <div id="all-cards-list"></div>
-  </div>
-</div>
-
-<!-- 期日編集モーダル -->
-<div id="modal-due" class="modal-overlay">
-  <div class="modal" style="max-width:360px">
-    <h2>期日を設定</h2>
-    <div style="display:flex;gap:6px;margin:12px 0 8px">
-      <button class="btn btn-ghost btn-sm" onclick="setDueQuick(0)">今日</button>
-      <button class="btn btn-ghost btn-sm" onclick="setDueQuick(1)">明日</button>
-      <button class="btn btn-ghost btn-sm" onclick="setDueQuick(7)">1週間後</button>
-      <button class="btn btn-ghost btn-sm" onclick="setDueQuick(30)">1ヶ月後</button>
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:16px">
-      <input id="modal-due-date" aria-label="期日" type="date" class="form-input" style="margin:0;flex:1">
-      <input id="modal-due-time" aria-label="時刻（任意）" type="time" step="300" class="form-input" style="margin:0;width:110px" placeholder="時刻（任意）">
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeDueModal()">キャンセル</button>
-      <button class="btn btn-danger btn-sm" onclick="saveDue(true)">クリア</button>
-      <button class="btn btn-primary" onclick="saveDue(false)">保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- タグ提案モーダル -->
-<div id="modal-tags" class="modal-overlay">
-  <div class="modal">
-    <h2>タグ変更の提案</h2>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">チェックしたものだけ変更されます。</p>
-    <div id="suggestions-list"></div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal()">キャンセル</button>
-      <button class="btn btn-primary" onclick="applyTags()">選択を適用</button>
-    </div>
-  </div>
-</div>
-
-<!-- 一括インポートモーダル -->
-<div id="modal-import" class="modal-overlay" onclick="if(event.target===this)closeImportModal()">
-  <div class="modal" style="max-width:680px">
-    <h2>📋 一括インポート</h2>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:10px">
-      Claude・ChatGPT などの AI 出力をそのまま貼り付けると、タスクを自動解析します。<br>
-      対応形式: 箇条書き（<code style="background:var(--border);padding:1px 5px;border-radius:3px">-</code> <code style="background:var(--border);padding:1px 5px;border-radius:3px">*</code> <code style="background:var(--border);padding:1px 5px;border-radius:3px">1.</code>）・チェックボックス（<code style="background:var(--border);padding:1px 5px;border-radius:3px">- [ ]</code>）・プレーンテキスト（1行1タスク）<br>
-      行末に <code style="background:var(--border);padding:1px 5px;border-radius:3px">（仕事）</code> <code style="background:var(--border);padding:1px 5px;border-radius:3px">（買い物）</code> などを付けるとカテゴリを自動認識します。
-    </p>
-    <textarea id="import-textarea" class="import-paste-area"
-      placeholder="ここに AI の出力を貼り付けてください…&#10;&#10;例:&#10;- プロジェクト計画書を作成する（仕事）&#10;- 牛乳とパンを買う（買い物）&#10;- TypeScript の基礎を学ぶ（学習）&#10;- 週次レポートを提出する"></textarea>
-    <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
-      <button class="btn btn-primary" onclick="previewImport()">📋 解析してプレビュー</button>
-      <button class="btn btn-ghost btn-sm" onclick="clearImport()">クリア</button>
-      <span style="font-size:12px;color:var(--text-faint);margin-left:auto">Ctrl+V で貼り付け → 解析</span>
-    </div>
-
-    <div id="import-preview-section" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:14px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <span id="import-count" style="font-size:14px;font-weight:700;color:var(--accent)"></span>
-        <span style="font-size:12px;color:var(--text-dim)">カテゴリを変更して「追加」を実行できます</span>
+  <section class="view" id="review">
+    <div class="wrap">
+      <div class="page-head">
+        <h1>確認</h1>
+        <p>エージェントが本人の判断を待っているものと、最近の変更です。</p>
       </div>
-      <div id="import-preview" class="import-preview"></div>
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeImportModal()">キャンセル</button>
-      <button id="import-exec-btn" class="btn btn-success" onclick="executeImport()" style="display:none">追加する</button>
-    </div>
-  </div>
-</div>
-
-<!-- サブフォルダ設定モーダル -->
-<div id="modal-subfolder" class="modal-overlay" onclick="if(event.target===this)closeSubfolderModal()">
-  <div class="modal" style="max-width:380px">
-    <h2>📁 サブフォルダを設定</h2>
-    <p id="modal-subfolder-info" style="font-size:12px;color:var(--text-dim);margin-bottom:12px"></p>
-    <div id="modal-subfolder-list" style="margin-bottom:8px"></div>
-    <div style="border-top:1px solid var(--border);padding-top:10px">
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">新しいサブフォルダを作成:</div>
-      <div style="display:flex;gap:6px">
-        <input id="modal-subfolder-new" class="form-input subfolder-new-input" style="margin:0;flex:1" placeholder="フォルダ名を入力…"
-          onkeydown="if(event.key==='Enter'){saveSubfolder(this.value.trim());}" onclick="event.stopPropagation()">
-        <button class="btn btn-primary btn-sm" onclick="saveSubfolder(document.getElementById('modal-subfolder-new').value.trim())">作成</button>
+      <div class="review-grid">
+        <div class="panel">
+          <div class="panel-head"><h2>追加したい種類</h2><span class="count" id="proposed-count"></span></div>
+          <div id="proposed"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>判断を求めているメモ</h2><span class="count" id="review-count"></span></div>
+          <ul class="rows" id="review-entries"></ul>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>最近の変更</h2></div>
+          <ul class="rows" id="log"></ul>
+        </div>
       </div>
+      <footer><a href="/logout">ログアウト</a></footer>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeSubfolderModal()">キャンセル</button>
-      <button class="btn btn-danger btn-sm" onclick="saveSubfolder(null)">フォルダを外す</button>
-    </div>
-  </div>
-</div>
+  </section>
+</main>
 
-<!-- スプリット提案モーダル -->
-<div id="modal-splits" class="modal-overlay">
-  <div class="modal">
-    <h2>✨ AI サブフォルダ提案</h2>
-    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">チェックしたタスクにサブフォルダを付けます。同じサブフォルダのタスクはグループ化されます。</p>
-    <div id="splits-list"></div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeSplitsModal()">キャンセル</button>
-      <button class="btn btn-primary" onclick="applySplits()">選択を適用</button>
+<dialog id="sheet">
+  <form method="dialog" id="sheet-form">
+    <div class="sheet-head"><h3 id="sheet-heading">詳細</h3><button class="icon-btn" value="cancel" formnovalidate aria-label="閉じる">✕</button></div>
+    <label class="field"><span>題名</span><input name="title" required></label>
+    <div class="two">
+      <label class="field"><span>種類</span><select name="kind" id="sheet-kind"></select></label>
+      <label class="field"><span>期日</span><input name="due" type="datetime-local"></label>
     </div>
-  </div>
-</div>
+    <div id="sheet-fields"></div>
+    <label class="field"><span>メモ</span><textarea name="body"></textarea></label>
+    <div class="sheet-actions">
+      <button class="btn primary" value="save">保存</button>
+      <button class="btn" value="toggle" id="sheet-toggle">完了にする</button>
+      <span class="spacer"></span>
+      <button class="btn danger" value="trash" id="sheet-trash">ゴミ箱へ</button>
+    </div>
+  </form>
+</dialog>
 
-<div id="modal-recurring-edit" class="modal-overlay">
-  <div class="modal">
-    <h2>定期タスクを編集</h2>
-    <input id="redit-text" aria-label="定期タスクのテキスト" class="form-input" placeholder="タスクのテキスト">
-    <div class="form-row">
-      <select id="redit-cat" aria-label="カテゴリ" class="form-select">
-        <option value="">カテゴリ（任意）</option>
-        <option>仕事</option><option>プライベート</option>
-        <option>買い物</option><option>学習</option><option>その他</option>
-      </select>
-      <select id="redit-freq" aria-label="頻度" class="form-select" onchange="updateReditFreqUI()">
-        <option value="daily">毎日</option>
-        <option value="weekly">毎週</option>
-        <option value="monthly">毎月</option>
-      </select>
-    </div>
-    <div id="redit-weekly-ui" style="display:none;margin-bottom:10px">
-      <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">曜日を選択:</div>
-      <div class="weekday-picker">
-        <button class="redit-wd-btn wd-btn" data-wd="0">月</button>
-        <button class="redit-wd-btn wd-btn" data-wd="1">火</button>
-        <button class="redit-wd-btn wd-btn" data-wd="2">水</button>
-        <button class="redit-wd-btn wd-btn" data-wd="3">木</button>
-        <button class="redit-wd-btn wd-btn" data-wd="4">金</button>
-        <button class="redit-wd-btn wd-btn" data-wd="5">土</button>
-        <button class="redit-wd-btn wd-btn" data-wd="6">日</button>
-      </div>
-    </div>
-    <div id="redit-monthly-ui" style="display:none;margin-bottom:10px">
-      <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">毎月何日:</div>
-      <input id="redit-dom" aria-label="毎月何日" type="number" min="1" max="31" class="form-input" style="width:100px" placeholder="日">
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeRecurringEdit()">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveRecurringEdit()">保存</button>
-    </div>
-  </div>
-</div>
-
-<script>
-function applyTheme(t){
-  document.documentElement.setAttribute('data-theme', t);
-  localStorage.setItem('zzzmemo_theme', t);
-  document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
-}
-(function(){applyTheme(localStorage.getItem('zzzmemo_theme') || '');})();
-</script>
-<script type="module" src="/static/js/app.js"></script>
-
-<!-- ── タスク編集モーダル ── -->
-<div id="task-edit-modal" class="modal-overlay">
-  <div class="modal">
-    <h2>タスクを編集</h2>
-    <input id="edit-task-text" aria-label="タスクテキスト" class="form-input" placeholder="タスク内容">
-    <div class="edit-modal-row">
-      <select id="edit-task-cat" aria-label="カテゴリ">
-        <option value="">カテゴリなし</option>
-        <option>仕事</option>
-        <option>プライベート</option>
-        <option>買い物</option>
-        <option>学習</option>
-        <option>その他</option>
-      </select>
-      <select id="edit-task-imp" aria-label="重要度">
-        <option value="high">🔴 高</option>
-        <option value="medium">🟡 中</option>
-        <option value="low">🟢 低</option>
-      </select>
-    </div>
-    <div class="edit-modal-row">
-      <input id="edit-task-due" type="date" aria-label="期日" style="flex:1">
-      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('edit-task-due').value=''">期日クリア</button>
-    </div>
-    <input type="hidden" id="edit-task-id">
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeTaskEditModal()">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveTaskEdit()">保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── FAB (タスク追加) ── -->
-<div class="fab-add" id="fab-add">
-  <button onclick="openQuickAddOverlay()" title="タスクを追加">+</button>
-</div>
-
-<!-- ── クイック追加オーバーレイ ── -->
-<div class="quick-add-overlay" id="quick-add-overlay">
-  <div class="quick-add-overlay-header">
-    <span>タスクを追加</span>
-    <button class="quick-add-overlay-close" onclick="closeQuickAddOverlay()">✕</button>
-  </div>
-  <div class="inbox-add-row">
-    <input id="overlay-input" aria-label="新しいタスク" placeholder="タスクを入力… 「明日」「来週」など"
-      oninput="onOverlayInput(this.value)" onkeydown="handleOverlayAdd(event)"
-      autocomplete="off" autocorrect="off">
-    <button class="btn btn-primary" onclick="addTaskFromOverlay()">追加</button>
-  </div>
-  <div id="overlay-date-hint" class="inbox-date-hint"></div>
-  <div class="inbox-opts-row">
-    <input id="overlay-due-date" type="date" class="inbox-due-input" aria-label="期日（任意）">
-    <button class="quick-shortcut" onclick="setOverlayDate(0)">今日</button>
-    <button class="quick-shortcut" onclick="setOverlayDate(1)">明日</button>
-    <button class="quick-shortcut" onclick="setOverlayDate(7)">来週</button>
-    <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-      <button id="overlay-imp-btn" class="imp-btn imp-medium" onclick="cycleOverlayImp()">🟡中</button>
-      <button class="btn btn-warning btn-sm" onclick="runSortFromOverlay()">✨ AI分類</button>
-    </span>
-  </div>
-  <span id="overlay-sort-status" style="font-size:12px;color:var(--text-dim)"></span>
-</div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="/app.js"></script>
+<script>if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});</script>
 </body>
 </html>

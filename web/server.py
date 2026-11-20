@@ -1,4 +1,4 @@
-"""web/server.py — FastAPI アプリ組み立て & 起動"""
+"""web/server.py — FastAPI app: login, the page, and the API router."""
 
 from __future__ import annotations
 
@@ -16,27 +16,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from core import db, storage
-from core.storage import (
-    check_recurring,
-    promote_longterm_tasks,
-    save_data,
-    save_data_bg,
-)
+from core import db
 from web import deps
-from web.routers import (
-    blog,
-    chat,
-    checklists,
-    config,
-    diary,
-    flashcards,
-    lang,
-    recurring,
-    sync,
-    tasks,
-    v2,
-)
+from web.routers import api
 
 # localhost HTTP で OAuth2 を通すために必要（本番環境では設定しない）
 if os.environ.get("HOST", "127.0.0.1") in ("127.0.0.1", "localhost"):
@@ -72,6 +54,8 @@ def _render_login_page(error: str = "") -> str:
         err_html = '<p class="err">ユーザー名またはパスワードが違います</p>'
     elif error == "unauthorized":
         err_html = '<p class="err">このアカウントはアクセスできません</p>'
+    elif error == "google":
+        err_html = '<p class="err">Googleでのログインに失敗しました。もう一度試してください</p>'
 
     password_block = ""
     if _AUTH_ENABLED:
@@ -165,40 +149,7 @@ def _setup_logging(base_dir: Path) -> logging.Logger:
     return logger
 
 
-deps.logger = _setup_logging(_BASE_DIR)
-
-
-# ── 自動同期ジョブ ────────────────────────────────────────────────────────────
-
-
-def _recurring_check_job() -> None:
-    try:
-        added = check_recurring(deps.app_data)
-        # 起動時だけでなく常駐中も longterm → todo 昇格を評価する
-        promoted = promote_longterm_tasks(deps.app_data)
-        if added or promoted:
-            save_data_bg(deps.app_data)
-        if added:
-            deps.logger.info(f"定期タスク生成: {len(added)}件 — {added}")
-        if promoted:
-            deps.logger.info(f"長期タスク昇格: {promoted}件")
-    except Exception as e:
-        deps.logger.error(f"定期タスクチェックエラー: {e}", exc_info=True)
-
-
-def _auto_sync_job() -> None:
-    from core import google_sync
-
-    if not google_sync.is_authenticated():
-        return
-    try:
-        pushed = google_sync.push_all(deps.app_data)
-        pulled = google_sync.pull_all(deps.app_data)
-        if pushed or pulled:
-            save_data_bg(deps.app_data)
-        deps.logger.info(f"自動同期完了: push={pushed} pull={pulled}")
-    except Exception as e:
-        deps.logger.error(f"自動同期エラー: {e}", exc_info=True)
+logger = _setup_logging(_BASE_DIR)
 
 
 # ── ライフスパン ──────────────────────────────────────────────────────────────
@@ -216,39 +167,9 @@ async def lifespan(app: FastAPI):
         secret_path.parent.mkdir(parents=True, exist_ok=True)
         secret_path.write_text(_secret_json, encoding="utf-8")
 
-    deps.app_data, stats = storage.initialize()
     db.init()
-    promoted = promote_longterm_tasks(deps.app_data)
-    if promoted:
-        save_data(deps.app_data)
-    deps.logger.info(
-        f"起動完了 — 移行:{stats['migrated']} 吸い上げ:{stats['siphoned']} "
-        f"定期:{stats['recurring']} アーカイブ:{stats['archived']} 長期昇格:{promoted}"
-    )
-
-    scheduler = None
-    try:
-        from apscheduler.schedulers.background import BackgroundScheduler
-
-        scheduler = BackgroundScheduler()
-        cfg = deps.load_config()
-        interval_min = cfg.get("sync_interval_minutes", 30)
-        scheduler.add_job(_auto_sync_job, "interval", minutes=interval_min)
-        scheduler.add_job(_recurring_check_job, "cron", hour="*", minute=5)
-        scheduler.start()
-        deps.logger.info(
-            f"スケジューラ起動 — 自動同期:{interval_min}分ごと / 定期タスク:毎時5分"
-        )
-    except ImportError:
-        deps.logger.warning("apscheduler 未インストール。自動同期は無効です。")
-
+    logger.info("起動完了")
     yield
-
-    if scheduler:
-        try:
-            scheduler.shutdown(wait=False)
-        except Exception:
-            pass
 
 
 # ── FastAPI アプリ ────────────────────────────────────────────────────────────
@@ -312,29 +233,61 @@ def logout():
     return resp
 
 
-# 静的ファイル
+@app.get("/api/auth/login")
+def google_login():
+    from core import google_login
+
+    try:
+        return RedirectResponse(google_login.get_auth_url())
+    except FileNotFoundError:
+        return RedirectResponse(url="/login?error=google", status_code=302)
+
+
+@app.get("/api/auth/callback")
+def google_callback(request: Request):
+    from core import google_login
+
+    try:
+        email = google_login.email_from_callback(str(request.url))
+    except Exception as e:
+        logger.warning(f"Google ログイン失敗: {e}")
+        return RedirectResponse(url="/login?error=google", status_code=302)
+    if not GOOGLE_EMAIL or not email or not secrets.compare_digest(email.lower(), GOOGLE_EMAIL.lower()):
+        return RedirectResponse(url="/login?error=unauthorized", status_code=302)
+    resp = RedirectResponse(url="/", status_code=302)
+    resp.set_cookie(
+        SESSION_COOKIE,
+        make_session_token(),
+        httponly=True,
+        secure=AUTH_REQUIRED,
+        samesite="lax",
+        max_age=SESSION_MAX_AGE,
+    )
+    return resp
+
+
+# ── ページ ────────────────────────────────────────────────────────────────────
+
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# The page and its script are revalidated on every load so a deploy shows up
+# without a hard reload.
+_NO_CACHE = {"Cache-Control": "no-cache"}
 
 
 @app.get("/", response_class=FileResponse)
 def index():
-    return FileResponse(str(_STATIC_DIR / "index.html"))
+    return FileResponse(str(_STATIC_DIR / "index.html"), headers=_NO_CACHE)
 
 
-# v2 pages are revalidated on every load so a deploy shows up without a hard reload
-_NO_CACHE = {"Cache-Control": "no-cache"}
+@app.get("/app.js", response_class=FileResponse)
+def app_js():
+    return FileResponse(str(_STATIC_DIR / "app.js"), media_type="text/javascript", headers=_NO_CACHE)
 
 
-@app.get("/v2", response_class=FileResponse)
-def index_v2():
-    return FileResponse(str(_STATIC_DIR / "v2" / "index.html"), headers=_NO_CACHE)
-
-
-@app.get("/v2/app.js", response_class=FileResponse)
-def app_js_v2():
-    return FileResponse(
-        str(_STATIC_DIR / "v2" / "app.js"), media_type="text/javascript", headers=_NO_CACHE
-    )
+@app.get("/v2")
+def old_v2_path():
+    return RedirectResponse(url="/", status_code=301)
 
 
 @app.get("/manifest.json")
@@ -349,23 +302,11 @@ def service_worker():
     return FileResponse(
         str(_STATIC_DIR / "sw.js"),
         media_type="application/javascript",
-        headers={"Service-Worker-Allowed": "/"},
+        headers={"Service-Worker-Allowed": "/", **_NO_CACHE},
     )
 
 
-# ── ルーター登録 ──────────────────────────────────────────────────────────────
-
-app.include_router(tasks.router)
-app.include_router(v2.router)
-app.include_router(recurring.router)
-app.include_router(checklists.router)
-app.include_router(chat.router)
-app.include_router(diary.router)
-app.include_router(blog.router)
-app.include_router(flashcards.router)
-app.include_router(lang.router)
-app.include_router(sync.router)
-app.include_router(config.router)
+app.include_router(api.router)
 
 
 # ── サーバー起動 ──────────────────────────────────────────────────────────────
