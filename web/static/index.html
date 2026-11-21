@@ -90,6 +90,23 @@ section.view.on{display:block}
 .panel-head .today-link{font-size:.82rem;margin-right:4px}
 
 ul.rows{list-style:none;margin:0;padding:0}
+#items.cards{display:grid;grid-template-columns:1fr;gap:14px;padding:14px;background:var(--side);align-items:start}
+@media (min-width:900px){#items.cards{grid-template-columns:1fr 1fr}}
+.gcard{background:var(--bg);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.gcard h3{display:flex;align-items:baseline;gap:8px;margin:0;padding:14px 16px 10px;font-size:1.05rem;font-weight:700}
+.gcard h3 .count{color:var(--faint);font-size:.8rem;font-weight:600;font-variant-numeric:tabular-nums}
+.gcard .row{padding:10px 16px}
+.title .kind-of{margin-left:8px;vertical-align:2px;font-size:.68rem}
+.jump-bar{padding:10px 18px;border-bottom:1px solid var(--line);background:var(--side)}
+.jump-bar:has(select[hidden]){display:none}
+#reading-jump{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:10px;padding:9px 12px;font-size:.9rem}
+.cat-icon{display:inline-grid;place-items:center;width:1.9em;height:1.9em;border-radius:9px;flex-shrink:0;font-size:1rem;line-height:1;font-weight:700;color:var(--fg);background:var(--raise)}
+.cat-icon[style*="--hue"]{background:hsl(var(--hue) 75% 55% / .2)}
+.gcard h3{align-items:center}
+.gcard[style*="--hue"]{border-top:3px solid hsl(var(--hue) 70% 55%)}
+.tag.cat{display:inline-flex;align-items:center;gap:5px;padding-left:3px}
+.tag.cat .cat-icon{width:1.5em;height:1.5em;border-radius:999px;font-size:.78rem}
+.gcard-more{display:block;width:100%;border:0;border-top:1px solid var(--line);background:none;padding:10px 16px;color:var(--accent);font-weight:600;cursor:pointer;text-align:left}
 .row{display:flex;align-items:flex-start;gap:12px;padding:12px 18px;border-top:1px solid var(--line)}
 .row:first-child{border-top:0}
 .row .main{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -121,6 +138,64 @@ ul.rows{list-style:none;margin:0;padding:0}
 .page-head{padding:40px 0 8px}
 .page-head h1{font-size:clamp(1.6rem,4vw,2.2rem);margin:0;font-weight:800;letter-spacing:-.01em}
 .page-head p{margin:4px 0 0;color:var(--muted)}
+#list .page-head{display:flex;align-items:center;gap:8px;transition:padding .2s ease}
+.back{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:12px;color:var(--fg);text-decoration:none;font-size:1.3rem;margin-left:-8px}
+.back:hover{background:var(--raise)}
+.kind-nav.stuck .page-head{padding:8px 0 4px}
+.kind-nav.stuck .page-head h1{font-size:1.25rem}
+/* Sticks under the top bar; slides away while scrolling down and comes back
+   on the way up, like a phone browser's address bar. */
+.kind-nav{position:sticky;top:var(--top-h,60px);z-index:15;background:var(--bg);padding:0 0 10px;transition:transform .22s ease,opacity .18s ease}
+.kind-nav.away{transform:translateY(-115%);opacity:0;pointer-events:none}
+.kind-nav.stuck{box-shadow:0 10px 16px -12px rgba(0,0,0,.35);padding-bottom:8px}
+/* 一覧 opens on a page of big cards, one per kind; picking one slides the
+   list in, and ← (or the browser's back) slides back. */
+.chooser .page-head{padding-bottom:18px}
+.choose-main{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+@media (min-width:700px){.choose-main{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.choose-card{position:relative;display:block;text-decoration:none;color:inherit;border:1px solid var(--line);border-radius:18px;background:var(--bg);padding:16px 48px 16px 20px;box-shadow:var(--shadow);transition:transform .15s ease,border-color .15s ease;animation:rise .45s cubic-bezier(.2,.8,.2,1) both}
+.choose-card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.choose-card.big{padding:26px 56px 24px 24px;min-height:140px}
+.choose-head{display:flex;align-items:baseline;gap:10px}
+.choose-name{font-size:1.05rem;font-weight:800}
+.choose-card.big .choose-name{font-size:1.7rem;letter-spacing:-.01em}
+.choose-card .count{color:var(--faint);font-weight:600;font-variant-numeric:tabular-nums}
+.choose-groups{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px}
+.choose-card .go{position:absolute;right:20px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:1.4rem;transition:transform .15s ease}
+.choose-card:hover .go{transform:translate(4px,-50%);color:var(--accent)}
+.choose-label{font-size:.85rem;color:var(--faint);margin:30px 0 10px;font-weight:700}
+.choose-more{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.choose-card:not(.big){padding:14px 16px}
+.choose-card:not(.big) .choose-head{flex-direction:column;align-items:flex-start;gap:2px}
+.choose-card:not(.big) .choose-name{white-space:nowrap}
+.choose-card:not(.big) .go{display:none}
+/* Inside a kind with files: one big card per 分類, a peek at its first items */
+.cat-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;padding-bottom:8px}
+@media (min-width:700px){.cat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cat-card{position:relative;cursor:pointer;border:1px solid var(--line);border-top:4px solid var(--line);border-radius:18px;background:var(--bg);padding:18px 48px 16px 20px;box-shadow:var(--shadow);animation:rise .45s cubic-bezier(.2,.8,.2,1) both;transition:transform .15s ease,border-color .15s ease}
+.cat-card[style*="--hue"]{border-top-color:hsl(var(--hue) 70% 55%)}
+.cat-card:hover{transform:translateY(-2px)}
+.cat-card:focus-visible{outline:2px solid var(--accent)}
+.cat-head{display:flex;align-items:center;gap:12px}
+.cat-head .cat-icon{width:2.3em;height:2.3em;font-size:1.25rem;border-radius:12px}
+.cat-name{font-size:1.35rem;font-weight:800}
+.cat-card .count{color:var(--faint);font-weight:600;font-variant-numeric:tabular-nums}
+.cat-peek{list-style:none;margin:14px 0 0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:6px}
+.cat-peek li{display:flex;align-items:baseline;gap:10px;min-width:0}
+.cat-peek a{flex:1;min-width:0;display:block;color:var(--muted);text-decoration:none;font-size:.92rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.peek-date{flex-shrink:0;font-size:.75rem;color:var(--faint);font-variant-numeric:tabular-nums}
+.cat-peek a:hover{color:var(--accent)}
+.cat-more{margin-top:8px;font-size:.8rem;color:var(--faint)}
+.cat-card .go{position:absolute;right:18px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:1.4rem;transition:transform .15s ease}
+.cat-card:hover .go{transform:translate(4px,-50%);color:var(--accent)}
+.cat-all{display:inline-flex;align-items:center;gap:6px;margin:18px 0 40px;color:var(--accent);font-weight:700;text-decoration:none}
+#list-title{display:flex;align-items:center;gap:10px}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}}
+@keyframes in-fwd{from{opacity:0;transform:translateX(56px)}}
+@keyframes in-back{from{opacity:0;transform:translateX(-56px)}}
+.enter-fwd{animation:in-fwd .34s cubic-bezier(.2,.8,.2,1) both}
+.enter-back{animation:in-back .34s cubic-bezier(.2,.8,.2,1) both}
+@media (prefers-reduced-motion:reduce){.choose-card,.enter-fwd,.enter-back{animation:none}}
 .chips{display:flex;gap:8px;overflow-x:auto;padding:16px 0 4px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chips button{flex-shrink:0;border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:7px 16px;cursor:pointer;font-weight:600;color:var(--muted)}
@@ -218,6 +293,7 @@ body.reading header.top{display:none}
         <div class="panel" id="reading-panel" hidden>
           <div class="panel-head"><h2>資料</h2><span class="count">ピン・最近開いた順</span>
             <div class="tools"><a href="#list" class="today-link" id="reading-all">すべて</a></div></div>
+          <div class="jump-bar"><select id="reading-jump" aria-label="分類を選んで一覧へ"></select></div>
           <ul class="rows" id="reading"></ul>
         </div>
         <div class="panel">
@@ -234,12 +310,23 @@ body.reading header.top{display:none}
 
   <section class="view" id="list">
     <div class="wrap">
-      <div class="page-head">
-        <h1 id="list-title">一覧</h1>
-        <p id="list-sub"></p>
+      <div class="chooser" id="chooser" hidden>
+        <div class="page-head"><h1>一覧</h1></div>
+        <div class="choose-main" id="choose-main"></div>
+        <h2 class="choose-label" id="choose-more-label">ほかの種類</h2>
+        <div class="choose-more" id="choose-more"></div>
       </div>
-      <div class="chips" id="kind-tabs"></div>
-      <div class="list-wrap">
+      <div id="kind-view" hidden>
+      <div id="kind-nav-at"></div>
+      <div class="kind-nav" id="kind-nav">
+        <div class="page-head">
+          <a class="back" href="#list" id="kind-back" aria-label="種類を選び直す">←</a>
+          <h1 id="list-title">一覧</h1>
+          <button class="icon-btn" type="button" id="kind-main-toggle"></button>
+        </div>
+      </div>
+      <div id="cat-landing" hidden></div>
+      <div class="list-wrap" id="list-panel">
         <div class="panel">
           <form class="add" id="add-item">
             <input id="add-item-title" placeholder="ここに直接追加" aria-label="項目を追加">
@@ -251,6 +338,7 @@ body.reading header.top{display:none}
           </div>
           <ul class="rows" id="items"></ul>
         </div>
+      </div>
       </div>
     </div>
   </section>

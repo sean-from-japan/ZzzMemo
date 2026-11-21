@@ -8,6 +8,7 @@ There is no in-memory copy: each call reads SQLite.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import uuid
@@ -15,7 +16,8 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-DB_FILE = Path(__file__).parent.parent / "data" / "qcatch.db"
+# ZZZMEMO_DB points a local dev server at a copy (see dev.py); files live beside it.
+DB_FILE = Path(os.environ.get("ZZZMEMO_DB") or Path(__file__).parent.parent / "data" / "qcatch.db")
 
 ENTRY_STATES = {"new", "done", "review"}
 KIND_STATUSES = {"active", "proposed", "rejected"}
@@ -109,8 +111,10 @@ _JSON_COLS = {"fields", "proposed_fields"}
 # Columns added after the first release. Rows in older log entries lack them,
 # so undo fills these defaults in before comparing or restoring.
 _ADDED_COLS = {
-    "items": {"pinned": ("INTEGER NOT NULL DEFAULT 0", 0)},
-    "kinds": {"proposed_fields": ("TEXT", None)},
+    # file_at: when the item's file was last changed before it was uploaded
+    # (its modified time on the agent's machine), shown as the document's date
+    "items": {"pinned": ("INTEGER NOT NULL DEFAULT 0", 0), "file_at": ("TEXT", None)},
+    "kinds": {"proposed_fields": ("TEXT", None), "main": ("INTEGER NOT NULL DEFAULT 0", 0)},
 }
 _TABLES = {"entries", "kinds", "items"}
 
@@ -200,16 +204,26 @@ def _write(conn, actor: str, table: str, op: str, before: dict | None, after: di
 def init() -> None:
     with _tx() as conn:
         conn.executescript(_SCHEMA)
+        added = set()
         for table, cols in _ADDED_COLS.items():
             have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
             for col, (decl, _) in cols.items():
                 if col not in have:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+                    added.add((table, col))
+        # Once, when `main` arrives: タスク and kinds holding files become the
+        # main kinds (the big buttons in 一覧); the user can change it there.
+        if ("kinds", "main") in added:
+            for r in conn.execute("SELECT * FROM kinds").fetchall():
+                k = _row(r)
+                if k["name"] == "タスク" or any(f.get("type") == "file" for f in k["fields"]):
+                    _write(conn, "system", "kinds", "update", k, {**k, "main": 1})
         if conn.execute("SELECT COUNT(*) FROM kinds").fetchone()[0] == 0:
             for name, fields in DEFAULT_KINDS:
                 _write(conn, "system", "kinds", "create", None, {
                     "id": str(uuid.uuid4()), "name": name, "fields": fields,
                     "status": "active", "created_at": _now(), "created_by": "system",
+                    "main": 1 if name == "タスク" else 0,
                 })
 
 
@@ -278,6 +292,13 @@ def _check_fields_def(fields: list) -> None:
             raise Invalid(f"field type must be one of {sorted(FIELD_TYPES)}")
         if f["type"] == "choice" and not f.get("options"):
             raise Invalid(f"choice field '{f['name']}' needs options")
+        # optional: a short icon (an emoji) per option, shown with the option
+        icons = f.get("icons")
+        if icons is not None and not (
+            f["type"] == "choice" and isinstance(icons, dict)
+            and all(k in f["options"] and isinstance(v, str) and 0 < len(v) <= 8 for k, v in icons.items())
+        ):
+            raise Invalid(f"icons of '{f['name']}' must map its options to short strings")
         if f["name"] in names:
             raise Invalid(f"duplicate field '{f['name']}'")
         names.add(f["name"])
@@ -385,7 +406,8 @@ def _resolve_kind(conn, kind: str) -> dict:
 
 def list_items(kind: str | None = None, status: str | None = "open", q: str | None = None,
                due_before: str | None = None, limit: int = 500) -> list[dict]:
-    sql = "SELECT items.* FROM items JOIN kinds ON kinds.id=items.kind_id WHERE 1=1"
+    sql = ("SELECT items.*, opened.at AS opened_at FROM items JOIN kinds ON kinds.id=items.kind_id"
+           " LEFT JOIN opened ON opened.item_id=items.id WHERE 1=1")
     args: list = []
     if kind:
         sql += " AND (kinds.id=? OR kinds.name=?)"
@@ -410,12 +432,22 @@ def get_item(item_id: str) -> dict:
         return _get(conn, "items", item_id)
 
 
+def _check_time(s: str | None) -> None:
+    if s is None:
+        return
+    try:
+        datetime.fromisoformat(s)
+    except (TypeError, ValueError):
+        raise Invalid(f"not a date or time: {s!r}")
+
+
 def add_item(data: dict, actor: str) -> dict:
     title = (data.get("title") or "").strip()
     if not title:
         raise Invalid("title is empty")
     values = data.get("fields") or {}
     _check_due(data.get("due"))
+    _check_time(data.get("file_at"))
     with _tx() as conn:
         kind = _resolve_kind(conn, data.get("kind") or "")
         _check_values(kind, values)
@@ -425,7 +457,8 @@ def add_item(data: dict, actor: str) -> dict:
         it = {"id": str(uuid.uuid4()), "kind_id": kind["id"], "title": title,
               "body": data.get("body") or "", "fields": values, "status": "open",
               "due": data.get("due"), "entry_id": data.get("entry_id"),
-              "created_at": now, "updated_at": now, "completed_at": None, "pinned": 0}
+              "created_at": now, "updated_at": now, "completed_at": None, "pinned": 0,
+              "file_at": data.get("file_at")}
         _write(conn, actor, "items", "create", None, it)
     return it
 
@@ -436,6 +469,7 @@ def update_item(item_id: str, changes: dict, actor: str) -> dict:
     if "title" in changes and not str(changes["title"]).strip():
         raise Invalid("title is empty")
     _check_due(changes.get("due"))
+    _check_time(changes.get("file_at"))
     if "pinned" in changes:
         changes = {**changes, "pinned": int(bool(changes["pinned"]))}
     with _tx() as conn:

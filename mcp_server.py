@@ -27,6 +27,7 @@ and rewriting what the user wrote are refused (HTTP 403).
 from __future__ import annotations
 
 import base64
+from datetime import datetime
 import json
 import mimetypes
 import os
@@ -89,6 +90,8 @@ def _entry(e: dict) -> dict:
 def _item(i: dict, kinds: Optional[dict] = None) -> dict:
     out = {k: i[k] for k in ("id", "title", "status", "due", "fields", "body", "entry_id")}
     out["pinned"] = bool(i.get("pinned"))
+    if i.get("file_at"):
+        out["file_at"] = i["file_at"]
     if kinds is not None:
         out["kind"] = kinds.get(i["kind_id"], i["kind_id"])
     return out
@@ -210,13 +213,16 @@ def add_item(kind: str, title: str, due: Optional[str] = None,
 def update_item(item_id: str, title: Optional[str] = None, status: Optional[str] = None,
                 due: Optional[str] = None, clear_due: bool = False, kind: Optional[str] = None,
                 fields: Optional[dict] = None, body: Optional[str] = None,
-                pinned: Optional[bool] = None) -> str:
+                pinned: Optional[bool] = None, file_at: Optional[str] = None) -> str:
     """Change an item. status: open / done / trashed. clear_due=true removes
     the due date. Changing kind drops the old kind's field values.
     pinned=true puts a file item at the top of the home screen's 資料 panel
-    (the user's bookmarks use the same flag); body is also the user's memo."""
+    (the user's bookmarks use the same flag); body is also the user's memo.
+    file_at (ISO date or time) is the date shown for a file item; add_file
+    sets it from the file's modified time."""
     changes = {k: v for k, v in {"title": title, "status": status, "due": due, "kind": kind,
-                                 "fields": fields, "body": body, "pinned": pinned}.items() if v is not None}
+                                 "fields": fields, "body": body, "pinned": pinned,
+                                 "file_at": file_at}.items() if v is not None}
     if clear_due:
         changes["due"] = None
     if not changes:
@@ -298,6 +304,8 @@ def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict]
     path = os.path.expanduser(path)
     with open(path, "rb") as fh:
         data = fh.read()
+    # the document's date in the app: when the file was last changed here
+    file_at = datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")
     if path.lower().endswith((".html", ".htm")):
         data = _inline_assets(data.decode("utf-8"), os.path.dirname(path)).encode("utf-8")
     kinds =_req("GET", "/api/kinds")["kinds"]
@@ -315,12 +323,13 @@ def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict]
     same = [i for i in _req("GET", "/api/items", query={"kind": k["id"], "q": title})["items"]
             if i["title"] == title]
     if same:
-        changes = {"fields": values}
+        changes = {"fields": values, "file_at": file_at}
         if body:
             changes["body"] = body
         item = _req("PATCH", f"/api/items/{same[0]['id']}", changes)
         return _out({"replaced": True, "item": _item(item)})
-    item = _req("POST", "/api/items", {"kind": k["id"], "title": title, "fields": values, "body": body})
+    item = _req("POST", "/api/items", {"kind": k["id"], "title": title, "fields": values, "body": body,
+                                       "file_at": file_at})
     return _out({"replaced": False, "item": _item(item)})
 
 

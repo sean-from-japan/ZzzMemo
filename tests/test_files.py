@@ -218,3 +218,49 @@ def test_page_state_is_saved_by_the_user_and_served_back_into_the_page(client):
 def test_page_state_goes_after_html_when_there_is_no_head(client):
     f = upload(client, b"<html lang=ja><header>h</header><body>b</body></html>", "a.html").json()["id"]
     assert client.get(f"/files/{f}").content.startswith(b"<html lang=ja><script>// Stands in")
+
+
+def test_choice_options_can_carry_icons(client):
+    kind = next(k for k in client.get("/api/kinds").json()["kinds"] if k["name"] == "資料")
+    fields = [{"name": "ファイル", "type": "file"},
+              {"name": "分類", "type": "choice", "options": ["英語", "調べごと"], "icons": {"英語": "🔤"}}]
+    r = client.post(f"/api/kinds/{kind['id']}/proposal", headers=AGENT, json={"fields": fields})
+    assert r.status_code == 200 and r.json()["proposed_fields"][1]["icons"] == {"英語": "🔤"}
+    bad = [fields[0], {**fields[1], "icons": {"ない選択肢": "x"}}]
+    assert client.post(f"/api/kinds/{kind['id']}/proposal", headers=AGENT, json={"fields": bad}).status_code == 400
+
+
+def test_main_kinds_are_set_once_when_the_column_arrives(tmp_path, monkeypatch):
+    import sqlite3
+    monkeypatch.setattr(db, "DB_FILE", tmp_path / "old.db")
+    db.init()
+    # an older DB: no `main` column yet, a file kind beside the defaults
+    with db._tx() as conn:
+        conn.execute("INSERT INTO kinds (id, name, fields, status, created_at, created_by) VALUES (?,?,?,?,?,?)",
+                     ("k1", "資料", '[{"name": "ファイル", "type": "file"}]', "active", "x", "user"))
+    c = sqlite3.connect(tmp_path / "old.db")
+    c.execute("ALTER TABLE kinds DROP COLUMN main"); c.commit(); c.close()
+    db.init()
+    main = {k["name"]: k["main"] for k in db.list_kinds()}
+    assert main == {"タスク": 1, "メモ": 0, "欲しい物": 0, "チェックリスト": 0, "資料": 1}
+    # the user may change it later; a second init leaves it alone
+    db.update_kind("k1", {"main": False}, "human")
+    db.init()
+    assert next(k for k in db.list_kinds() if k["name"] == "資料")["main"] == 0
+
+
+def test_only_the_user_sets_main_kinds(client):
+    kind = next(k for k in client.get("/api/kinds").json()["kinds"] if k["name"] == "メモ")
+    assert client.patch(f"/api/kinds/{kind['id']}", headers=AGENT, json={"main": True}).status_code == 403
+    r = client.patch(f"/api/kinds/{kind['id']}", json={"main": True})
+    assert r.status_code == 200 and r.json()["main"]
+
+
+def test_file_items_carry_the_documents_date(client):
+    f = upload(client, HTML, "a.html").json()["id"]
+    item = client.post("/api/items", headers=AGENT, json={
+        "kind": "資料", "title": "比較", "fields": {"ファイル": f}, "file_at": "2026-08-29T17:18:00"})
+    assert item.status_code == 200 and item.json()["file_at"] == "2026-08-29T17:18:00"
+    url = f"/api/items/{item.json()['id']}"
+    assert client.patch(url, headers=AGENT, json={"file_at": "2026-11-20"}).json()["file_at"] == "2026-11-20"
+    assert client.patch(url, headers=AGENT, json={"file_at": "yesterday"}).status_code == 400

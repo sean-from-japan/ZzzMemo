@@ -79,6 +79,8 @@ class KindPatch(BaseModel):
     status: Optional[Literal["active", "proposed", "rejected"]] = None
     # the user clears a proposal (null) when approving or rejecting it
     proposed_fields: Optional[list[dict[str, Any]]] = None
+    # a main kind gets a big button in 一覧; the others sit in a separate row
+    main: Optional[bool] = None
 
 
 class KindProposal(BaseModel):
@@ -92,6 +94,7 @@ class ItemIn(BaseModel):
     fields: dict[str, Any] = {}
     due: Optional[str] = None
     entry_id: Optional[str] = None
+    file_at: Optional[str] = None
 
 
 class ItemPatch(BaseModel):
@@ -102,6 +105,7 @@ class ItemPatch(BaseModel):
     due: Optional[str] = None
     status: Optional[Literal["open", "done", "trashed"]] = None
     pinned: Optional[bool] = None
+    file_at: Optional[str] = None
 
 
 def _changes(model: BaseModel) -> dict:

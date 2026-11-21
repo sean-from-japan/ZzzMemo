@@ -95,12 +95,33 @@ function fileOf(item) {
   return f ? item.fields?.[f.name] || null : null;
 }
 const activeKinds = () => state.kinds.filter((k) => k.status === "active");
+// The date of a file item's document (its last change before upload), e.g.
+// 「8月29日」; the year is added when it is not this year.
+function fileDate(item) {
+  if (!item.file_at) return null;
+  const d = new Date(item.file_at.length === 10 ? `${item.file_at}T00:00` : item.file_at);
+  if (isNaN(d)) return null;
+  const md = `${d.getMonth() + 1}月${d.getDate()}日`;
+  return d.getFullYear() === new Date().getFullYear() ? md : `${d.getFullYear()}年${md}`;
+}
+// The field a kind's items are grouped by: its 分類, else its first choice field.
+const groupFieldOf = (kind) =>
+  kind?.fields.find((x) => x.type === "choice" && x.name === "分類") || kind?.fields.find((x) => x.type === "choice") || null;
+// An option's mark: its icon from the field definition (else its first
+// letter) on a tint picked by the option's place in the list.
+function optionMark(f, value) {
+  const i = f.options.indexOf(value);
+  const hue = i < 0 ? null : Math.round((i * 137.5 + 20) % 360);
+  return h("span", { class: "cat-icon", style: hue === null ? "" : `--hue:${hue}`, "aria-hidden": "true" },
+    f.icons?.[value] || (value || "・").slice(0, 1));
+}
 
 // ── tabs ─────────────────────────────────────────────────────────────────────
 
 function currentTab() {
   const t = location.hash.slice(1);
   if (t.startsWith("read/")) return "read";
+  if (t.startsWith("list/")) return "list";
   return ["today", "list", "review"].includes(t) ? t : "today";
 }
 
@@ -134,15 +155,17 @@ async function loadKinds() {
 
 // ── item row (shared by today and list) ──────────────────────────────────────
 
-function itemRow(item, { showKind = false } = {}) {
+function itemRow(item, { showKind = false, groupedBy = null } = {}) {
   const kind = kindById(item.kind_id);
   const due = dueInfo(item.due);
   const done = item.status === "done";
   const file = fileOf(item);
   const types = Object.fromEntries((kind?.fields || []).map((f) => [f.name, f.type]));
   const extras = Object.entries(item.fields || {})
-    .filter(([k, v]) => v !== null && v !== "" && v !== false && types[k] !== "file")
-    .map(([k, v]) => h("span", { class: "tag plain" }, v === true ? k : `${k}：${v}`));
+    .filter(([k, v]) => v !== null && v !== "" && v !== false && types[k] !== "file" && k !== groupedBy)
+    .map(([k, v]) => k === groupFieldOf(kind)?.name
+      ? h("span", { class: "tag plain cat" }, optionMark(groupFieldOf(kind), v), v)
+      : h("span", { class: "tag plain" }, v === true ? k : `${k}：${v}`));
   return h("li", { class: "row" + (done ? " is-done" : "") },
     h("input", {
       type: "checkbox", class: "check", checked: done, "aria-label": "完了",
@@ -154,11 +177,12 @@ function itemRow(item, { showKind = false } = {}) {
     }),
     // An item with a file opens the reading screen; the sheet is one tap further.
     h("div", { class: "main open", onclick: () => (file ? (location.hash = `#read/${item.id}`) : openSheet(item)) },
-      h("span", { class: "title" }, item.pinned ? h("span", { class: "pin", "aria-label": "ピン" }, "★ ") : null, item.title),
+      h("span", { class: "title" }, item.pinned ? h("span", { class: "pin", "aria-label": "ピン" }, "★ ") : null, item.title,
+        file ? h("span", { class: "tag kind-of" }, file.endsWith(".pdf") ? "PDF" : "HTML") : null),
       h("div", { class: "sub" },
         showKind && kind ? h("span", { class: "tag" }, kind.name) : null,
+        file && fileDate(item) ? h("span", {}, `${fileDate(item)}更新`) : null,
         item.opened_at ? h("span", {}, `${dueInfo(item.opened_at).text.replace(/ .*/, "")}に開いた`) : null,
-        file ? h("span", { class: "tag" }, file.endsWith(".pdf") ? "PDF" : "HTML") : null,
         due ? h("span", { class: `due ${due.cls}` }, due.text) : null,
         extras,
       ),
@@ -249,10 +273,22 @@ async function renderToday() {
   const fileKind = activeKinds().find((k) => k.fields.some((f) => f.type === "file"));
   $("reading-panel").hidden = !fileKind;
   fill($("reading"), today.reading.map((i) => itemRow(i, { showKind: activeKinds().filter((k) => k.fields.some((f) => f.type === "file")).length > 1 })), "まだ資料はありません");
-  $("reading-all").onclick = () => {
-    state.kind = fileKind?.id;
-    try { localStorage.setItem("zzz.kind", state.kind); } catch {}
-  };
+  $("reading-all").href = fileKind ? `#list/${encodeURIComponent(fileKind.id)}` : "#list";
+  // Jump straight to one 分類's card in the list
+  const groupField = groupFieldOf(fileKind);
+  const jump = $("reading-jump");
+  jump.hidden = !groupField;
+  if (groupField) {
+    const { items } = await api(`/api/items?kind=${encodeURIComponent(fileKind.id)}&status=open`);
+    const counts = {};
+    for (const i of items) counts[i.fields?.[groupField.name] || ""] = (counts[i.fields?.[groupField.name] || ""] || 0) + 1;
+    jump.replaceChildren(h("option", { value: "" }, `${groupField.name}から選ぶ`),
+      ...[...groupField.options, ""].filter((o) => counts[o]).map((o) => h("option", { value: o || " " }, `${groupField.icons?.[o] ? groupField.icons[o] + " " : ""}${o || `${groupField.name}なし`}（${counts[o]}）`)));
+    jump.onchange = () => {
+      if (!jump.value) return;
+      location.hash = `#list/${encodeURIComponent(fileKind.id)}/${encodeURIComponent(jump.value === " " ? NO_GROUP : jump.value)}`;
+    };
+  }
   $("due-count").textContent = today.due_soon.length ? `${today.due_soon.length}件` : "";
   $("tasks-count").textContent = tasks.length ? `${tasks.length}件` : "";
 }
@@ -276,36 +312,165 @@ async function submitCapture(ev) {
 
 // ── list ─────────────────────────────────────────────────────────────────────
 
-function restoreKind() {
-  let saved = null;
-  try { saved = localStorage.getItem("zzz.kind"); } catch {}
-  const kinds = activeKinds();
-  state.kind = kinds.find((k) => k.id === (state.kind || saved))?.id || kinds[0]?.id || null;
+// 一覧 is a few screens deep; going deeper slides in from the right, going
+// back (←, or the browser's back) slides in from the left.
+//   #list                  big cards, one per kind
+//   #list/<kind>           a kind holding files: big cards, one per 分類
+//   #list/<kind>/<分類>    its items (* = all of the kind, _none = no 分類)
+// A kind without files goes from #list/<kind> straight to its items.
+const NO_GROUP = "_none";
+function listRoute() {
+  const [, kindId, group] = location.hash.slice(1).split("/").map((p) => p && decodeURIComponent(p));
+  const kind = kindById(kindId) || null;
+  const landing = !!kind && !!groupFieldOf(kind) && kind.fields.some((f) => f.type === "file");
+  return { kind, group: kind && group ? group : null, landing };
 }
 
 async function renderList() {
-  restoreKind();
-  const kinds = activeKinds();
-  $("kind-tabs").replaceChildren(...kinds.map((k) =>
-    h("button", {
-      type: "button", class: k.id === state.kind ? "on" : "",
-      onclick: () => {
-        state.kind = k.id;
-        try { localStorage.setItem("zzz.kind", k.id); } catch {}
-        renderList();
-      },
-    }, k.name)));
-  const kind = kindById(state.kind);
-  $("list-title").textContent = kind ? kind.name : "一覧";
-  $("list-sub").textContent = kind && kind.fields.length ? `項目：${kind.fields.map((f) => f.name).join("・")}` : "";
-  if (!kind) return fill($("items"), [], "種類がありません");
+  const { kind, group, landing } = listRoute();
+  const depth = !kind ? 0 : group === null ? 1 : 2;
+  if (state.listView !== location.hash) {
+    const el = kind ? $("kind-view") : $("chooser");
+    $("chooser").hidden = !!kind;
+    $("kind-view").hidden = !kind;
+    if (state.listView !== undefined) {
+      // a transform on the screen would unstick the title bar, so it is removed after
+      el.classList.remove("enter-fwd", "enter-back");
+      void el.offsetWidth;
+      el.classList.add(depth >= state.listDepth ? "enter-fwd" : "enter-back");
+      el.addEventListener("animationend", () => el.classList.remove("enter-fwd", "enter-back"), { once: true });
+      scrollTo({ top: 0 });
+    }
+    state.listView = location.hash;
+    state.listDepth = depth;
+  }
+  if (!kind) return renderChooser();
+  state.kind = kind.id;
+  const f = groupFieldOf(kind);
+  const kindHref = `#list/${encodeURIComponent(kind.id)}`;
+  const showLanding = landing && depth === 1;
+  state.group = f && group && group !== "*" && group !== NO_GROUP ? group : null;
+  $("kind-back").href = landing && depth === 2 ? kindHref : "#list";
+  $("list-title").replaceChildren(...(f && group && group !== "*"
+    ? [optionMark(f, state.group || ""), state.group || `${f.name}なし`]
+    : [group === "*" ? `${kind.name}：すべて` : kind.name]));
+  const toggle = $("kind-main-toggle");
+  toggle.hidden = depth === 2 && landing;
+  toggle.textContent = kind.main ? "★" : "☆";
+  toggle.title = kind.main ? "よく使う種類から外す" : "よく使う種類にする（大きいボタンになります）";
+  toggle.setAttribute("aria-label", toggle.title);
+  toggle.onclick = async () => {
+    await api(`/api/kinds/${kind.id}`, { method: "PATCH", body: { main: !kind.main } });
+    await loadKinds();
+    toast(kind.main ? "ほかの種類に移しました" : "よく使う種類にしました");
+    renderList();
+  };
+  $("cat-landing").hidden = !showLanding;
+  $("list-panel").hidden = showLanding;
 
-  const showDone = $("show-done").checked;
+  const showDone = !showLanding && $("show-done").checked;
   const data = await api(`/api/items?kind=${encodeURIComponent(kind.id)}&status=${showDone ? "all" : "open"}`);
-  const items = data.items.filter((i) => i.status !== "trashed");
-  fill($("items"), items.map((i) => itemRow(i)), showDone ? "まだ何もありません" : "未完了のものはありません");
+  let items = data.items.filter((i) => i.status !== "trashed");
+  if (showLanding) return renderCatLanding(kind, f, items, kindHref);
+  if (f && group && group !== "*") {
+    items = items.filter((i) => (i.fields?.[f.name] || "") === (state.group || "")).sort(byPriority);
+    $("items").classList.remove("cards");
+    fill($("items"), items.map((i) => itemRow(i, { groupedBy: f.name })), showDone ? "まだ何もありません" : "未完了のものはありません");
+  } else {
+    fill($("items"), groupedRows(kind, items), showDone ? "まだ何もありません" : "未完了のものはありません");
+  }
   const open = items.filter((i) => i.status === "open").length;
   $("items-count").textContent = open ? `${open}件` : "";
+}
+
+// Pinned first, then the most recently opened, then the newest document,
+// then the list's own order; done items last.
+const priorityRank = (i) => [i.status === "done" ? 1 : 0, i.pinned ? 0 : 1, i.opened_at ? 0 : 1, i.opened_at || ""];
+function byPriority(a, b) {
+  const [x, y] = [priorityRank(a), priorityRank(b)];
+  for (let k = 0; k < 3; k++) if (x[k] !== y[k]) return x[k] - y[k];
+  // then the most recently opened, then the newest document
+  return y[3].localeCompare(x[3]) || (b.file_at || "").localeCompare(a.file_at || "");
+}
+
+// One big card per 分類, in the order of its options, each with a peek at its
+// first three items; a title in the peek opens that item directly.
+function renderCatLanding(kind, f, items, kindHref) {
+  const groups = {};
+  for (const i of items) (groups[i.fields?.[f.name] || ""] ||= []).push(i);
+  const names = [...f.options, ""].filter((o) => groups[o]?.length);
+  const cards = names.map((o, n) => {
+    const g = groups[o].sort(byPriority);
+    const mark = optionMark(f, o);
+    const href = `${kindHref}/${encodeURIComponent(o || NO_GROUP)}`;
+    return h("div", {
+      class: "cat-card", role: "link", tabindex: "0", style: `${mark.getAttribute("style") || ""};animation-delay:${n * 60}ms`,
+      onclick: () => (location.hash = href),
+      onkeydown: (e) => { if (e.key === "Enter") location.hash = href; },
+    },
+      h("div", { class: "cat-head" }, mark, h("span", { class: "cat-name" }, o || `${f.name}なし`), h("span", { class: "count" }, `${g.length}件`)),
+      h("ul", { class: "cat-peek" }, ...g.slice(0, 3).map((i) => h("li", {},
+        h("a", { href: fileOf(i) ? `#read/${i.id}` : href, onclick: (e) => e.stopPropagation() }, i.pinned ? "★ " : "", i.title),
+        fileDate(i) ? h("span", { class: "peek-date" }, fileDate(i)) : null))),
+      g.length > 3 ? h("div", { class: "cat-more" }, `ほか${g.length - 3}件`) : null,
+      h("span", { class: "go", "aria-hidden": "true" }, "→"));
+  });
+  $("cat-landing").replaceChildren(
+    cards.length ? h("div", { class: "cat-grid" }, ...cards) : h("p", { class: "empty" }, "未完了のものはありません"),
+    h("a", { class: "cat-all", href: `${kindHref}/*` }, `すべてを分類ごとに見る →`));
+}
+
+async function renderChooser() {
+  const kinds = activeKinds();
+  const { items } = await api("/api/items?status=open");
+  const byKind = {};
+  for (const i of items) (byKind[i.kind_id] ||= []).push(i);
+  const card = (k, big, n) => {
+    const its = byKind[k.id] || [];
+    const f = big ? groupFieldOf(k) : null;
+    const counts = {};
+    if (f) for (const i of its) if (i.fields?.[f.name]) counts[i.fields[f.name]] = (counts[i.fields[f.name]] || 0) + 1;
+    return h("a", { class: "choose-card" + (big ? " big" : ""), href: `#list/${encodeURIComponent(k.id)}`, style: `animation-delay:${n * 60}ms` },
+      h("div", { class: "choose-head" }, h("span", { class: "choose-name" }, k.name), h("span", { class: "count" }, `${its.length}件`)),
+      f && Object.keys(counts).length
+        ? h("div", { class: "choose-groups" }, f.options.filter((o) => counts[o]).map((o) =>
+            h("span", { class: "tag plain cat" }, optionMark(f, o), `${o} ${counts[o]}`)))
+        : null,
+      h("span", { class: "go", "aria-hidden": "true" }, "→"));
+  };
+  const main = kinds.filter((k) => k.main);
+  const rest = main.length ? kinds.filter((k) => !k.main) : kinds;
+  $("choose-main").replaceChildren(...main.map((k, n) => card(k, true, n)));
+  $("choose-more").replaceChildren(...rest.map((k, n) => card(k, false, main.length + n)));
+  $("choose-more-label").hidden = !main.length || !rest.length;
+}
+
+// One card per value of the kind's 分類 (or its first choice field). Cards
+// follow the order of the field's options, so reordering the options (the
+// user approves it in 確認) reorders the cards; items without a value come
+// last. Inside a card: pinned first, then the most recently opened, then the
+// list's own order. A long card shows its first few and folds the rest.
+const CARD_ROWS = 5;
+function groupedRows(kind, items) {
+  const f = groupFieldOf(kind);
+  $("items").classList.toggle("cards", !!f);
+  if (!f) return items.map((i) => itemRow(i));
+  const order = [...f.options, ""];
+  const groups = new Map(order.map((o) => [o, []]));
+  for (const i of items) (groups.get(i.fields?.[f.name] || "") ?? groups.get("")).push(i);
+  return [...groups].filter(([, g]) => g.length).map(([name, g]) => {
+    g.sort(byPriority);
+    const rows = g.map((i) => itemRow(i, { groupedBy: f.name }));
+    const list = h("ul", { class: "rows" }, ...rows.slice(0, CARD_ROWS));
+    const more = rows.length > CARD_ROWS
+      ? h("button", { class: "gcard-more", type: "button", onclick: (e) => { list.append(...rows.slice(CARD_ROWS)); e.target.remove(); } },
+          `ほか${rows.length - CARD_ROWS}件を表示`)
+      : null;
+    const mark = optionMark(f, name);
+    return h("li", { class: "gcard", "data-group": name, style: mark.getAttribute("style") },
+      h("h3", {}, mark, name || `${f.name}なし`, h("span", { class: "count" }, `${g.length}件`)),
+      list, more);
+  });
 }
 
 async function addItem(ev) {
@@ -313,7 +478,10 @@ async function addItem(ev) {
   const input = $("add-item-title");
   const title = input.value.trim();
   if (!title || !state.kind) return;
-  await api("/api/items", { method: "POST", body: { kind: state.kind, title } });
+  // added inside one 分類: the new item belongs to it
+  const f = groupFieldOf(kindById(state.kind));
+  const fields = f && state.group ? { [f.name]: state.group } : {};
+  await api("/api/items", { method: "POST", body: { kind: state.kind, title, fields } });
   input.value = "";
   renderList();
 }
@@ -568,9 +736,16 @@ function changeCard(k) {
     else if (JSON.stringify(o) !== JSON.stringify(f)) {
       const added = (f.options || []).filter((x) => !(o.options || []).includes(x));
       const removed = (o.options || []).filter((x) => !(f.options || []).includes(x));
-      if (o.type === f.type && (added.length || removed.length)) {
+      const { icons: oi, options: oo, ...oRest } = o;
+      const { icons: fi, options: fo, ...fRest } = f;
+      if (JSON.stringify(oRest) === JSON.stringify(fRest)) {
         if (added.length) lines.push(`${f.name}の選択肢に追加：${added.join("、")}`);
         if (removed.length) lines.push(`${f.name}の選択肢から削除：${removed.join("、")}`);
+        const kept = (fo || []).filter((x) => (oo || []).includes(x));
+        if (JSON.stringify(kept) !== JSON.stringify((oo || []).filter((x) => kept.includes(x))))
+          lines.push(`${f.name}の並び順：${fo.join(" → ")}`);
+        if (JSON.stringify(oi || {}) !== JSON.stringify(fi || {}))
+          lines.push(`${f.name}のアイコン：${Object.entries(fi || {}).map(([k, v]) => `${v} ${k}`).join("、") || "なし"}`);
       } else lines.push(`変更：${fieldWord(o)} → ${fieldWord(f)}`);
     }
   }
@@ -621,6 +796,28 @@ async function reload() {
     btn.classList.remove("spin");
   }
 }
+
+// The title row in 一覧 hides while scrolling down and returns when
+// scrolling up; above their own place on the page they always show.
+let lastScroll = 0;
+function placeKindNav() {
+  const nav = $("kind-nav");
+  const topH = document.querySelector("header.top").offsetHeight;
+  document.documentElement.style.setProperty("--top-h", `${topH}px`);
+  const y = scrollY;
+  const natural = $("kind-nav-at").getBoundingClientRect().top;
+  const stuck = currentTab() === "list" && natural < topH;
+  nav.classList.toggle("stuck", stuck);
+  // hide only once the row's own place is scrolled out of view; earlier it
+  // would leave a blank band at the top
+  if (!stuck || natural + nav.offsetHeight > topH) nav.classList.remove("away");
+  else if (Math.abs(y - lastScroll) > 6) {
+    nav.classList.toggle("away", y > lastScroll);
+  }
+  if (Math.abs(y - lastScroll) > 6 || !stuck) lastScroll = y;
+}
+window.addEventListener("scroll", placeKindNav, { passive: true });
+window.addEventListener("resize", placeKindNav);
 
 // ── wiring ───────────────────────────────────────────────────────────────────
 
