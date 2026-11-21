@@ -20,8 +20,9 @@ Configuration (environment variables):
 
 What an agent may do is decided by the server: it can add entries and items,
 edit items, set an entry's state and undo those changes. A kind it adds stays
-"proposed" until the user approves it in the app. Changing or deleting kinds
-and rewriting what the user wrote are refused (HTTP 403).
+"proposed" until it is approved, in the app or with decide_proposal when the
+user tells the agent to. Changing or deleting kinds directly and rewriting
+what the user wrote are refused (HTTP 403).
 """
 
 from __future__ import annotations
@@ -335,8 +336,8 @@ def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict]
 
 @tool
 def propose_kind(name: str, fields: Optional[list] = None) -> str:
-    """Propose a new kind. It stays "proposed" until the user approves it in
-    the app, so mark the lines that need it as "review" in the meantime.
+    """Propose a new kind. It stays "proposed" until it is approved (in the
+    app, or with decide_proposal when the user tells you to), so mark the lines that need it as "review" in the meantime.
     fields: [{"name": "著者", "type": "text"}, {"name": "状態", "type":
     "choice", "options": ["未読", "読了"]}]; types: text, date, choice,
     number, bool, file (a file uploaded with add_file)."""
@@ -348,14 +349,51 @@ def propose_kind(name: str, fields: Optional[list] = None) -> str:
 def propose_kind_change(kind: str, fields: list) -> str:
     """Propose a new field list for an existing kind, e.g. more options for a
     choice field. Pass the whole list, not only the changes. The kind keeps
-    its current fields until the user approves the proposal in the app.
+    its current fields until the proposal is approved (in the app, or with
+    decide_proposal when the user tells you to).
     Keep every option that items already use."""
-    kinds = _req("GET", "/api/kinds")["kinds"]
-    k = next((x for x in kinds if kind in (x["id"], x["name"])), None)
+    k = _req("POST", f"/api/kinds/{_kind(kind)['id']}/proposal", {"fields": fields})
+    return _out({key: k[key] for key in ("id", "name", "fields", "proposed_fields")})
+
+
+def _kind(kind: str) -> dict:
+    k = next((x for x in _req("GET", "/api/kinds")["kinds"] if kind in (x["id"], x["name"])), None)
     if k is None:
         raise RuntimeError(f"unknown kind '{kind}'")
-    k = _req("POST", f"/api/kinds/{k['id']}/proposal", {"fields": fields})
-    return _out({key: k[key] for key in ("id", "name", "fields", "proposed_fields")})
+    return k
+
+
+@tool
+def list_proposals() -> str:
+    """What waits for a decision: kinds an agent proposed, and proposed
+    changes to a kind's fields (with the current fields beside them). The same
+    list the app shows in 確認."""
+    out = []
+    for k in _req("GET", "/api/kinds")["kinds"]:
+        if k["status"] == "proposed":
+            out.append({"kind": k["name"], "what": "new kind", "fields": k["fields"]})
+        elif k.get("proposed_fields") is not None:
+            out.append({"kind": k["name"], "what": "change fields", "now": k["fields"],
+                        "proposed": k["proposed_fields"]})
+    return _out(out)
+
+
+@tool
+def decide_proposal(kind: str, approve: bool) -> str:
+    """Approve (approve=true) or reject what waits on a kind: the kind itself
+    if it was proposed, otherwise its proposed field change. Do this only when
+    the user has told you to in the conversation (e.g. "承認して"), never for
+    your own proposal on your own judgment. The change log records you."""
+    k = _req("POST", f"/api/kinds/{_kind(kind)['id']}/decision", {"approve": approve})
+    return _out({key: k[key] for key in ("id", "name", "status", "fields", "proposed_fields")})
+
+
+@tool
+def set_main_kind(kind: str, main: bool) -> str:
+    """Make a kind one of the big cards in 一覧 (main=true) or move it under
+    ほかの種類 (main=false). A display preference; change it when the user asks."""
+    k = _req("POST", f"/api/kinds/{_kind(kind)['id']}/main", {"main": main})
+    return _out({key: k[key] for key in ("id", "name", "main")})
 
 
 @tool

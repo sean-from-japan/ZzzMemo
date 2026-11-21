@@ -38,13 +38,15 @@ The server decides from how the request is authenticated, not from what the agen
 | Add lines and items, edit items | yes | yes |
 | Mark a line sorted or waiting | yes | yes |
 | Rewrite or delete a line you wrote | yes | no (403) |
-| Add a kind | yes | proposed only, until you approve |
+| Add a kind | yes | proposed only, until approved |
+| Approve or reject a proposal | yes | yes, when you tell it to (`decide_proposal`) |
+| Big card in 一覧 for a kind | yes | yes (`set_main_kind`) |
 | Change or delete a kind | yes | no (403) |
 | Undo a change | yes | yes, except changes to kinds |
 
 ## Tools for agents
 
-`mcp_server.py` exposes 15 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `propose_kind_change`, `add_file`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server:
+`mcp_server.py` exposes 18 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `propose_kind_change`, `list_proposals`, `decide_proposal`, `add_file`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server:
 
 ```bash
 python mcp_server.py list

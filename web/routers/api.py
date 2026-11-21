@@ -174,6 +174,27 @@ def post_kind_proposal(kind_id: str, body: KindProposal, request: Request):
     return _call(db.update_kind, kind_id, {"proposed_fields": body.fields}, _actor(request))
 
 
+class Decision(BaseModel):
+    approve: bool
+
+
+# Approving or rejecting a proposal works the same from the app and from an
+# agent (CLI or MCP), so nothing depends on the screen; agents do it only when
+# the user tells them to, and the log records who decided.
+@router.post("/api/kinds/{kind_id}/decision")
+def post_kind_decision(kind_id: str, body: Decision, request: Request):
+    return _call(db.decide_kind, kind_id, body.approve, _actor(request))
+
+
+class MainKind(BaseModel):
+    main: bool
+
+
+@router.post("/api/kinds/{kind_id}/main")
+def post_main_kind(kind_id: str, body: MainKind, request: Request):
+    return _call(db.set_main_kind, kind_id, body.main, _actor(request))
+
+
 @router.delete("/api/kinds/{kind_id}")
 def delete_kind(kind_id: str, request: Request):
     actor = _actor(request)

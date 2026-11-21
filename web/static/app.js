@@ -360,7 +360,7 @@ async function renderList() {
   toggle.title = kind.main ? "よく使う種類から外す" : "よく使う種類にする（大きいボタンになります）";
   toggle.setAttribute("aria-label", toggle.title);
   toggle.onclick = async () => {
-    await api(`/api/kinds/${kind.id}`, { method: "PATCH", body: { main: !kind.main } });
+    await api(`/api/kinds/${kind.id}/main`, { method: "POST", body: { main: !kind.main } });
     await loadKinds();
     toast(kind.main ? "ほかの種類に移しました" : "よく使う種類にしました");
     renderList();
@@ -760,14 +760,14 @@ function changeCard(k) {
 }
 
 async function decideChange(k, ok) {
-  await api(`/api/kinds/${k.id}`, { method: "PATCH", body: ok ? { fields: k.proposed_fields, proposed_fields: null } : { proposed_fields: null } });
+  await api(`/api/kinds/${k.id}/decision`, { method: "POST", body: { approve: ok } });
   await loadKinds();
   toast(ok ? `「${k.name}」の項目を変えました` : "却下しました");
   renderReview();
 }
 
 async function decideKind(k, status) {
-  await api(`/api/kinds/${k.id}`, { method: "PATCH", body: { status } });
+  await api(`/api/kinds/${k.id}/decision`, { method: "POST", body: { approve: status === "active" } });
   await loadKinds();
   toast(status === "active" ? `「${k.name}」を追加しました` : "却下しました");
   renderReview();

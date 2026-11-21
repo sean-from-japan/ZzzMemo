@@ -264,3 +264,26 @@ def test_file_items_carry_the_documents_date(client):
     url = f"/api/items/{item.json()['id']}"
     assert client.patch(url, headers=AGENT, json={"file_at": "2026-11-20"}).json()["file_at"] == "2026-11-20"
     assert client.patch(url, headers=AGENT, json={"file_at": "yesterday"}).status_code == 400
+
+
+def test_agents_decide_proposals_and_main_kinds_through_the_api(client):
+    # a new kind proposed by one agent, approved by another on the user's word
+    k = client.post("/api/kinds", headers=AGENT, json={"name": "本", "fields": []}).json()
+    r = client.post(f"/api/kinds/{k['id']}/decision", headers={"X-Actor": "codex"}, json={"approve": True})
+    assert r.status_code == 200 and r.json()["status"] == "active"
+    assert client.get("/api/log").json()["log"][0]["actor"] == "codex"
+    # a field change: rejected, then proposed again and approved
+    wider = [{"name": "読了", "type": "bool"}]
+    client.post(f"/api/kinds/{k['id']}/proposal", headers=AGENT, json={"fields": wider})
+    r = client.post(f"/api/kinds/{k['id']}/decision", headers=AGENT, json={"approve": False})
+    assert r.json()["fields"] == [] and r.json()["proposed_fields"] is None
+    client.post(f"/api/kinds/{k['id']}/proposal", headers=AGENT, json={"fields": wider})
+    r = client.post(f"/api/kinds/{k['id']}/decision", headers=AGENT, json={"approve": True})
+    assert r.json()["fields"] == wider and r.json()["proposed_fields"] is None
+    # nothing left to decide
+    assert client.post(f"/api/kinds/{k['id']}/decision", headers=AGENT, json={"approve": True}).status_code == 409
+    # the big-card preference
+    r = client.post(f"/api/kinds/{k['id']}/main", headers=AGENT, json={"main": True})
+    assert r.status_code == 200 and r.json()["main"] == 1
+    # direct edits of a kind stay with the user
+    assert client.patch(f"/api/kinds/{k['id']}", headers=AGENT, json={"name": "x"}).status_code == 403

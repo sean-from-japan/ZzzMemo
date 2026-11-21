@@ -341,6 +341,34 @@ def update_kind(kind_id: str, changes: dict, actor: str) -> dict:
     return after
 
 
+def decide_kind(kind_id: str, approve: bool, actor: str) -> dict:
+    """Approve or reject what is waiting on a kind: the kind itself when it was
+    proposed, otherwise a proposed change to its fields. The user does this in
+    確認; an agent may do it when the user tells it to. The log keeps who."""
+    with _tx() as conn:
+        before = _get(conn, "kinds", kind_id)
+        if before["status"] == "proposed":
+            after = {**before, "status": "active" if approve else "rejected"}
+        elif before["proposed_fields"] is not None:
+            after = {**before, "proposed_fields": None}
+            if approve:
+                _check_fields_def(before["proposed_fields"])
+                after["fields"] = before["proposed_fields"]
+        else:
+            raise Conflict(f"nothing is waiting on '{before['name']}'")
+        _write(conn, actor, "kinds", "update", before, after)
+    return after
+
+
+def set_main_kind(kind_id: str, main: bool, actor: str) -> dict:
+    """Whether a kind gets a big card in 一覧 (a display preference)."""
+    with _tx() as conn:
+        before = _get(conn, "kinds", kind_id)
+        after = {**before, "main": int(bool(main))}
+        _write(conn, actor, "kinds", "update", before, after)
+    return after
+
+
 def delete_kind(kind_id: str, actor: str) -> None:
     with _tx() as conn:
         before = _get(conn, "kinds", kind_id)
