@@ -16,3 +16,4 @@ qcatch.exe
 .claude/
 .mcp.json
 PLAN.md
+dev.py
