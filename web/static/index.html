@@ -49,7 +49,10 @@ header.top .wrap{display:flex;align-items:center;gap:16px;height:56px}
 .seg{margin-left:auto;display:flex;gap:2px;padding:3px;background:var(--raise);border-radius:999px}
 .seg a{padding:6px 16px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:.9rem;font-weight:600;white-space:nowrap}
 .seg a.on{background:var(--bg);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-@media (max-width:420px){.brand span{display:none}.seg{margin-left:auto}.seg a{padding:6px 13px}}
+@media (max-width:420px){.brand span{display:none}.seg{margin-left:auto}.seg a{padding:6px 13px}header.top .wrap{gap:8px}}
+#reload{margin-left:-8px}
+#reload.spin{animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:5px;border-radius:9px;background:var(--crit);color:#fff;font-size:11px;line-height:18px;vertical-align:1px;text-align:center}
 .badge:empty{display:none}
 
@@ -176,6 +179,7 @@ body.reading header.top{display:none}
     <a href="#list" data-tab="list">一覧</a>
     <a href="#review" data-tab="review">確認<span class="badge" id="review-badge"></span></a>
   </nav>
+  <button type="button" class="icon-btn" id="reload" aria-label="再読み込み" title="再読み込み">↻</button>
 </div></header>
 
 <main>
@@ -266,6 +270,7 @@ body.reading header.top{display:none}
       <a href="#list" id="read-back">← 戻る</a>
       <b id="read-title"></b>
       <span class="acts">
+        <button type="button" id="read-reload" aria-label="再読み込み" title="再読み込み">↻</button>
         <button type="button" id="read-detail">詳細</button>
         <a id="read-open" target="_blank" rel="noopener">別のタブで開く</a>
       </span>

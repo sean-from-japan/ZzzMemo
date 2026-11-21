@@ -107,3 +107,25 @@ def test_replacing_a_file_can_be_undone(client):
     # both versions are still there
     assert client.get(f"/files/{first}").status_code == 200
     assert client.get(f"/files/{second}").status_code == 200
+
+
+def test_add_file_folds_local_assets_into_the_page(tmp_path):
+    import mcp_server
+
+    (tmp_path / "lib" / "fonts").mkdir(parents=True)
+    (tmp_path / "lib" / "fonts" / "a.woff2").write_bytes(b"w2")
+    (tmp_path / "lib" / "s.css").write_text(
+        '@font-face{src:url(fonts/a.woff2) format("woff2"),url(fonts/a.woff) format("woff")}', encoding="utf-8")
+    (tmp_path / "lib" / "step.js").write_text('document.title = "</script>";', encoding="utf-8")
+    (tmp_path / "fig.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
+    page = ('<!DOCTYPE html><html><head><link rel="stylesheet" href="lib/s.css">'
+            '<script defer src="lib/step.js"></script>'
+            '<script src="https://cdn.example/x.js"></script></head>'
+            '<body><img src="fig.svg"><img src="missing.png"><a href="#s2">2</a></body></html>')
+    out = mcp_server._inline_assets(page, str(tmp_path))
+    assert 'href="lib/s.css"' not in out and "data:font/woff2;base64," in out
+    assert "a.woff" not in out  # the woff fallback is dropped when woff2 exists
+    assert '<script defer >document.title = "<\\/script>";</script>' in out
+    assert 'src="https://cdn.example/x.js"' in out  # remote and missing files stay as they are
+    assert 'src="data:image/svg+xml;base64,' in out and 'src="missing.png"' in out
+    assert 'href="#s2"' in out

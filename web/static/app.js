@@ -482,7 +482,27 @@ async function undo(l) {
   renderReview();
 }
 
+// Fetches kinds and the current screen again, e.g. after an agent sorted lines
+// or uploaded a file while the app stayed open. On the reading screen the
+// frame is reloaded too, so a replaced or edited document shows up.
+async function reload() {
+  const btn = $("reload");
+  btn.classList.add("spin");
+  try {
+    await loadKinds();
+    if (currentTab() === "read") $("read-frame").removeAttribute("src");
+    await showTab();
+    await refreshBadge();
+    toast("最新の状態にしました");
+  } finally {
+    btn.classList.remove("spin");
+  }
+}
+
 // ── wiring ───────────────────────────────────────────────────────────────────
+
+$("reload").addEventListener("click", reload);
+$("read-reload").addEventListener("click", reload);
 
 const ta = $("capture-text");
 ta.addEventListener("input", () => autoGrow(ta));

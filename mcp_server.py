@@ -26,8 +26,11 @@ and rewriting what the user wrote are refused (HTTP 403).
 
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -217,6 +220,65 @@ def update_item(item_id: str, title: Optional[str] = None, status: Optional[str]
     return _out(_item(_req("PATCH", f"/api/items/{item_id}", changes)))
 
 
+# The server stores one file per item and serves it from an origin-less
+# sandbox, so files next to the page (KaTeX, a shared stylesheet, 図/*.svg)
+# would not load. add_file folds those local files into the page first.
+_LOCAL = r"""(?!(?:[a-z][a-z0-9+.-]*:|//|#))([^"'<>]+)"""
+_CSS_LINK = re.compile(r"""<link\b[^>]*\bhref=["']""" + _LOCAL + r"""["'][^>]*>""", re.I)
+_SCRIPT = re.compile(r"""<script\b([^>]*)\bsrc=["']""" + _LOCAL + r"""["']([^>]*)>\s*</script>""", re.I)
+_SRC = re.compile(r"""(<(?:img|source|image|video|audio)\b[^>]*\b(?:src|href)=["'])""" + _LOCAL + r"""(["'])""", re.I)
+_CSS_URL = re.compile(r"""url\(\s*(["']?)""" + _LOCAL.replace("\"'", "\"')") + r"""\1\s*\)""", re.I)
+# Every browser that runs the app reads woff2, so the woff/ttf fallbacks are dropped.
+_FONT_FALLBACK = re.compile(r""",\s*url\([^)]*\.(?:woff|ttf|otf)["']?\)\s*format\([^)]*\)""", re.I)
+
+
+def _local_file(base: str, ref: str) -> Optional[str]:
+    p = os.path.normpath(os.path.join(base, urllib.parse.unquote(ref.split("#")[0].split("?")[0])))
+    return p if os.path.isfile(p) else None
+
+
+def _data_uri(p: str) -> str:
+    mime = mimetypes.guess_type(p)[0] or "application/octet-stream"
+    with open(p, "rb") as fh:
+        return f"data:{mime};base64,{base64.b64encode(fh.read()).decode()}"
+
+
+def _inline_css(css: str, base: str) -> str:
+    if ".woff2" in css:
+        css = _FONT_FALLBACK.sub("", css)
+
+    def url(m):
+        p = _local_file(base, m.group(2))
+        return f'url("{_data_uri(p)}")' if p else m.group(0)
+    return _CSS_URL.sub(url, css)
+
+
+def _inline_assets(html: str, base: str) -> str:
+    def link(m):
+        p = _local_file(base, m.group(1))
+        if not p or "stylesheet" not in m.group(0).lower():
+            return m.group(0)
+        with open(p, encoding="utf-8") as fh:
+            css = _inline_css(fh.read(), os.path.dirname(p))
+        return "<style>" + css.replace("</style", "<\\/style") + "</style>"
+
+    def script(m):
+        p = _local_file(base, m.group(2))
+        if not p:
+            return m.group(0)
+        with open(p, encoding="utf-8") as fh:
+            js = fh.read()
+        return f"<script{m.group(1)}{m.group(3)}>" + js.replace("</script", "<\\/script") + "</script>"
+
+    def src(m):
+        p = _local_file(base, m.group(2))
+        return m.group(1) + _data_uri(p) + m.group(3) if p else m.group(0)
+
+    html = re.sub(r"(<style\b[^>]*>)(.*?)(</style>)",
+                  lambda m: m.group(1) + _inline_css(m.group(2), base) + m.group(3), html, flags=re.S | re.I)
+    return _SRC.sub(src, _SCRIPT.sub(script, _CSS_LINK.sub(link, html)))
+
+
 @tool
 def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict] = None,
              body: str = "") -> str:
@@ -226,10 +288,15 @@ def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict]
     title, its file is replaced (the old file stays and the change can be
     undone); otherwise a new item is created. HTML runs sandboxed and is shown
     in the app's reading screen; `.slide` blocks get previous/next buttons.
+    Stylesheets, scripts, images and fonts that an HTML page loads from local
+    files by relative path (KaTeX, 図/*.svg) are folded into the uploaded page.
     fields: values for the kind's other fields, e.g. {"分類": "調べごと"}."""
-    with open(os.path.expanduser(path), "rb") as fh:
+    path = os.path.expanduser(path)
+    with open(path, "rb") as fh:
         data = fh.read()
-    kinds = _req("GET", "/api/kinds")["kinds"]
+    if path.lower().endswith((".html", ".htm")):
+        data = _inline_assets(data.decode("utf-8"), os.path.dirname(path)).encode("utf-8")
+    kinds =_req("GET", "/api/kinds")["kinds"]
     k = next((x for x in kinds if kind in (x["id"], x["name"])), None)
     if k is None:
         raise RuntimeError(f"unknown kind '{kind}'")
