@@ -233,6 +233,9 @@ def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict]
     k = next((x for x in kinds if kind in (x["id"], x["name"])), None)
     if k is None:
         raise RuntimeError(f"unknown kind '{kind}'")
+    # checked before uploading, so a refused item leaves no stray file behind
+    if k["status"] != "active":
+        raise RuntimeError(f"kind '{k['name']}' is {k['status']}; the user must approve it in the app first")
     file_field = next((f["name"] for f in k["fields"] if f["type"] == "file"), None)
     if file_field is None:
         raise RuntimeError(f"kind '{k['name']}' has no file field; propose one with propose_kind")
