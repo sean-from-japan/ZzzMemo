@@ -75,6 +75,12 @@ class KindPatch(BaseModel):
     name: Optional[str] = None
     fields: Optional[list[dict[str, Any]]] = None
     status: Optional[Literal["active", "proposed", "rejected"]] = None
+    # the user clears a proposal (null) when approving or rejecting it
+    proposed_fields: Optional[list[dict[str, Any]]] = None
+
+
+class KindProposal(BaseModel):
+    fields: list[dict[str, Any]]
 
 
 class ItemIn(BaseModel):
@@ -93,6 +99,7 @@ class ItemPatch(BaseModel):
     fields: Optional[dict[str, Any]] = None
     due: Optional[str] = None
     status: Optional[Literal["open", "done", "trashed"]] = None
+    pinned: Optional[bool] = None
 
 
 def _changes(model: BaseModel) -> dict:
@@ -154,6 +161,13 @@ def patch_kind(kind_id: str, body: KindPatch, request: Request):
     return _call(db.update_kind, kind_id, _changes(body), actor)
 
 
+# An agent cannot change a kind, but it can propose new fields for one (for
+# example more choices for 分類). The user approves or rejects it in the app.
+@router.post("/api/kinds/{kind_id}/proposal")
+def post_kind_proposal(kind_id: str, body: KindProposal, request: Request):
+    return _call(db.update_kind, kind_id, {"proposed_fields": body.fields}, _actor(request))
+
+
 @router.delete("/api/kinds/{kind_id}")
 def delete_kind(kind_id: str, request: Request):
     actor = _actor(request)
@@ -181,6 +195,12 @@ def get_item(item_id: str):
 @router.post("/api/items")
 def post_item(body: ItemIn, request: Request):
     return _call(db.add_item, body.model_dump(), _actor(request))
+
+
+@router.post("/api/items/{item_id}/opened")
+def post_opened(item_id: str):
+    _call(db.mark_opened, item_id)
+    return {"ok": True}
 
 
 @router.patch("/api/items/{item_id}")

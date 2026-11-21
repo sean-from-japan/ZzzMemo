@@ -22,10 +22,10 @@ The first version of ZzzMemo had Gemini built in and asked for a category, due d
 
 | Screen | What it is for |
 |---|---|
-| Today | The capture box and the lines written today (or any earlier day) with their state: new, sorted, or waiting for you. Items due within three days and open tasks. |
+| Today | The capture box and the lines written today (or any earlier day) with their state: new, sorted, or waiting for you. Items due within three days, open tasks, and up to six items with a file: pinned first, then recently opened, then newest. |
 | Lists | One list per kind, with an editor generated from the kind's fields. |
-| Read | Opens an item's file: a back link, the title, details and "open in a new tab", and the file below. |
-| Review | Kinds proposed by agents (approve or reject), lines an agent could not decide, and the change log with undo buttons. |
+| Read | Opens an item's file: a back link, the title, reload, pin, memo, details and "open in a new tab", and the file below. The memo is the item's memo text, shown beside the file (below it on a phone) and saved as you type. |
+| Review | Kinds and changes to kinds (such as more choices for a field) proposed by agents (approve or reject), lines an agent could not decide, and the change log with undo buttons. |
 
 It is a PWA, so it can be added to a phone's home screen. Light and dark themes follow the system.
 
@@ -44,7 +44,7 @@ The server decides from how the request is authenticated, not from what the agen
 
 ## Tools for agents
 
-`mcp_server.py` exposes 14 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `add_file`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server:
+`mcp_server.py` exposes 15 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `propose_kind_change`, `add_file`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server:
 
 ```bash
 python mcp_server.py list

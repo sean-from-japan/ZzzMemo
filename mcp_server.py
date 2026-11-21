@@ -88,6 +88,7 @@ def _entry(e: dict) -> dict:
 
 def _item(i: dict, kinds: Optional[dict] = None) -> dict:
     out = {k: i[k] for k in ("id", "title", "status", "due", "fields", "body", "entry_id")}
+    out["pinned"] = bool(i.get("pinned"))
     if kinds is not None:
         out["kind"] = kinds.get(i["kind_id"], i["kind_id"])
     return out
@@ -105,7 +106,7 @@ def list_kinds() -> str:
     """List kinds (categories) with their fields. Only kinds whose status is
     "active" can hold items; "proposed" ones wait for the user's approval."""
     kinds = _req("GET", "/api/kinds")["kinds"]
-    return _out([{k: x[k] for k in ("id", "name", "status", "fields")} for x in kinds])
+    return _out([{k: x.get(k) for k in ("id", "name", "status", "fields", "proposed_fields")} for x in kinds])
 
 
 @tool
@@ -208,11 +209,14 @@ def add_item(kind: str, title: str, due: Optional[str] = None,
 @tool
 def update_item(item_id: str, title: Optional[str] = None, status: Optional[str] = None,
                 due: Optional[str] = None, clear_due: bool = False, kind: Optional[str] = None,
-                fields: Optional[dict] = None, body: Optional[str] = None) -> str:
+                fields: Optional[dict] = None, body: Optional[str] = None,
+                pinned: Optional[bool] = None) -> str:
     """Change an item. status: open / done / trashed. clear_due=true removes
-    the due date. Changing kind drops the old kind's field values."""
+    the due date. Changing kind drops the old kind's field values.
+    pinned=true puts a file item at the top of the home screen's 資料 panel
+    (the user's bookmarks use the same flag); body is also the user's memo."""
     changes = {k: v for k, v in {"title": title, "status": status, "due": due, "kind": kind,
-                                 "fields": fields, "body": body}.items() if v is not None}
+                                 "fields": fields, "body": body, "pinned": pinned}.items() if v is not None}
     if clear_due:
         changes["due"] = None
     if not changes:
@@ -329,6 +333,20 @@ def propose_kind(name: str, fields: Optional[list] = None) -> str:
     number, bool, file (a file uploaded with add_file)."""
     k = _req("POST", "/api/kinds", {"name": name, "fields": fields or []})
     return _out({key: k[key] for key in ("id", "name", "status", "fields")})
+
+
+@tool
+def propose_kind_change(kind: str, fields: list) -> str:
+    """Propose a new field list for an existing kind, e.g. more options for a
+    choice field. Pass the whole list, not only the changes. The kind keeps
+    its current fields until the user approves the proposal in the app.
+    Keep every option that items already use."""
+    kinds = _req("GET", "/api/kinds")["kinds"]
+    k = next((x for x in kinds if kind in (x["id"], x["name"])), None)
+    if k is None:
+        raise RuntimeError(f"unknown kind '{kind}'")
+    k = _req("POST", f"/api/kinds/{k['id']}/proposal", {"fields": fields})
+    return _out({key: k[key] for key in ("id", "name", "fields", "proposed_fields")})
 
 
 @tool

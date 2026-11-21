@@ -105,6 +105,7 @@ function currentTab() {
 }
 
 async function showTab() {
+  await saveMemo(); // a memo still being typed belongs to the item that was open
   const tab = currentTab();
   if (tab !== "read") state.from = location.hash || "#today";
   document.body.classList.toggle("reading", tab === "read");
@@ -122,7 +123,7 @@ async function refreshBadge() {
     api("/api/kinds?status=proposed"),
     api("/api/entries?state=review"),
   ]);
-  const n = kinds.kinds.length + entries.entries.length;
+  const n = kinds.kinds.length + entries.entries.length + state.kinds.filter((k) => k.proposed_fields).length;
   $("review-badge").textContent = n ? String(n) : "";
 }
 
@@ -152,9 +153,10 @@ function itemRow(item, { showKind = false } = {}) {
     }),
     // An item with a file opens the reading screen; the sheet is one tap further.
     h("div", { class: "main open", onclick: () => (file ? (location.hash = `#read/${item.id}`) : openSheet(item)) },
-      h("span", { class: "title" }, item.title),
+      h("span", { class: "title" }, item.pinned ? h("span", { class: "pin", "aria-label": "ピン" }, "★ ") : null, item.title),
       h("div", { class: "sub" },
         showKind && kind ? h("span", { class: "tag" }, kind.name) : null,
+        item.opened_at ? h("span", {}, `${dueInfo(item.opened_at).text.replace(/ .*/, "")}に開いた`) : null,
         file ? h("span", { class: "tag" }, file.endsWith(".pdf") ? "PDF" : "HTML") : null,
         due ? h("span", { class: `due ${due.cls}` }, due.text) : null,
         extras,
@@ -242,6 +244,14 @@ async function renderToday() {
   const tasks = today.open_tasks.filter((i) => !dueIds.has(i.id));
   fill($("due-soon"), today.due_soon.map((i) => itemRow(i, { showKind: true })), "3日以内の期日はありません");
   fill($("open-tasks"), tasks.map((i) => itemRow(i)), "未完了のタスクはありません");
+  // Shown only when some kind has a file field
+  const fileKind = activeKinds().find((k) => k.fields.some((f) => f.type === "file"));
+  $("reading-panel").hidden = !fileKind;
+  fill($("reading"), today.reading.map((i) => itemRow(i, { showKind: activeKinds().filter((k) => k.fields.some((f) => f.type === "file")).length > 1 })), "まだ資料はありません");
+  $("reading-all").onclick = () => {
+    state.kind = fileKind?.id;
+    try { localStorage.setItem("zzz.kind", state.kind); } catch {}
+  };
   $("due-count").textContent = today.due_soon.length ? `${today.due_soon.length}件` : "";
   $("tasks-count").textContent = tasks.length ? `${tasks.length}件` : "";
 }
@@ -396,6 +406,11 @@ async function renderRead(itemId) {
   $("read-back").href = state.from || "#list";
   $("read-title").textContent = item.title;
   $("read-detail").onclick = () => openSheet(item);
+  state.readItem = item;
+  showPin(item);
+  $("memo-text").value = item.body || "";
+  $("memo-state").textContent = "";
+  api(`/api/items/${item.id}/opened`, { method: "POST" }).catch(() => {});
   const frame = $("read-frame");
   if (!file) {
     frame.removeAttribute("src");
@@ -409,6 +424,43 @@ async function renderRead(itemId) {
   if (frame.getAttribute("src") !== `/files/${file}`) frame.src = `/files/${file}`;
 }
 
+function showPin(item) {
+  $("read-pin").textContent = item.pinned ? "★ ピン" : "☆ ピン";
+  $("read-pin").setAttribute("aria-pressed", String(!!item.pinned));
+}
+
+async function togglePin() {
+  const item = state.readItem;
+  if (!item) return;
+  state.readItem = await api(`/api/items/${item.id}`, { method: "PATCH", body: { pinned: !item.pinned } });
+  showPin(state.readItem);
+  toast(state.readItem.pinned ? "ピン留めしました。ホームの資料の上に出ます" : "ピンを外しました");
+}
+
+function setMemoOpen(open) {
+  $("memo-pane").hidden = !open;
+  $("read-body").classList.toggle("memo-on", open);
+  $("read-memo").setAttribute("aria-pressed", String(open));
+  try { localStorage.setItem("zzz.memo", open ? "1" : ""); } catch {}
+}
+
+// The memo is the item's body, the same text as メモ in the detail sheet.
+// It is saved a moment after typing stops, and when the pane loses focus.
+let memoTimer;
+async function saveMemo() {
+  clearTimeout(memoTimer);
+  const item = state.readItem;
+  const text = $("memo-text").value;
+  if (!item || text === (item.body || "")) return;
+  $("memo-state").textContent = "保存中…";
+  try {
+    state.readItem = await api(`/api/items/${item.id}`, { method: "PATCH", body: { body: text } });
+    $("memo-state").textContent = "保存しました";
+  } catch {
+    $("memo-state").textContent = "保存できませんでした";
+  }
+}
+
 // ── review ───────────────────────────────────────────────────────────────────
 
 const STATE_WORDS = { open: "未完了", done: "完了", trashed: "ゴミ箱", new: "未処理", review: "判断待ち",
@@ -418,7 +470,8 @@ const word = (s) => STATE_WORDS[s] || s;
 function logSummary(entry) {
   const row = entry.after || entry.before || {};
   const what = { entries: "メモ", items: "項目", kinds: "種類" }[entry.table_name] || entry.table_name;
-  const op = { create: "追加", update: "変更", delete: "削除", undo: "取り消し" }[entry.op] || entry.op;
+  let op = { create: "追加", update: "変更", delete: "削除", undo: "取り消し" }[entry.op] || entry.op;
+  if (entry.op === "update" && entry.after?.proposed_fields && !entry.before?.proposed_fields) op = "変更の提案";
   let detail = row.title || row.body || row.name || "";
   if (entry.op === "update" && entry.before && entry.after) {
     if (entry.before.status !== entry.after.status) detail += `（${word(entry.before.status)} → ${word(entry.after.status)}）`;
@@ -434,7 +487,8 @@ async function renderReview() {
     api("/api/log?limit=30"),
   ]);
 
-  $("proposed").replaceChildren(...(proposed.kinds.length ? proposed.kinds.map((k) =>
+  const changes = state.kinds.filter((k) => k.proposed_fields).map(changeCard);
+  $("proposed").replaceChildren(...changes, ...(proposed.kinds.length || changes.length ? proposed.kinds.map((k) =>
     h("div", { class: "card" },
       h("div", { class: "name" }, k.name),
       h("div", { class: "sub", style: "font-size:.8rem;color:var(--muted)" }, `提案：${k.created_by}`),
@@ -445,7 +499,8 @@ async function renderReview() {
         h("button", { class: "btn small primary", type: "button", onclick: () => decideKind(k, "active") }, "承認する"),
         h("button", { class: "btn small", type: "button", onclick: () => decideKind(k, "rejected") }, "却下する"),
       ))) : [h("div", { class: "empty" }, "ありません")]));
-  $("proposed-count").textContent = proposed.kinds.length ? `${proposed.kinds.length}件` : "";
+  const nProposed = proposed.kinds.length + changes.length;
+  $("proposed-count").textContent = nProposed ? `${nProposed}件` : "";
 
   fill($("review-entries"), reviewEntries.entries.map(entryRow), "ありません");
   $("review-count").textContent = reviewEntries.entries.length ? `${reviewEntries.entries.length}件` : "";
@@ -466,6 +521,42 @@ async function renderReview() {
     );
   }), "まだ変更はありません");
   refreshBadge();
+}
+
+const fieldWord = (f) => `${f.name}（${f.type}${f.options ? "：" + f.options.join("/") : ""}）`;
+
+// A proposed change to an existing kind: what is added, removed or changed.
+function changeCard(k) {
+  const old = Object.fromEntries(k.fields.map((f) => [f.name, f]));
+  const neu = Object.fromEntries(k.proposed_fields.map((f) => [f.name, f]));
+  const lines = [];
+  for (const f of k.proposed_fields) {
+    const o = old[f.name];
+    if (!o) lines.push(`追加：${fieldWord(f)}`);
+    else if (JSON.stringify(o) !== JSON.stringify(f)) {
+      const added = (f.options || []).filter((x) => !(o.options || []).includes(x));
+      const removed = (o.options || []).filter((x) => !(f.options || []).includes(x));
+      if (o.type === f.type && (added.length || removed.length)) {
+        if (added.length) lines.push(`${f.name}の選択肢に追加：${added.join("、")}`);
+        if (removed.length) lines.push(`${f.name}の選択肢から削除：${removed.join("、")}`);
+      } else lines.push(`変更：${fieldWord(o)} → ${fieldWord(f)}`);
+    }
+  }
+  for (const f of k.fields) if (!neu[f.name]) lines.push(`削除：${fieldWord(f)}`);
+  return h("div", { class: "card" },
+    h("div", { class: "name" }, `「${k.name}」の項目を変える`),
+    h("div", { class: "fields" }, (lines.length ? lines : ["項目の並び順だけの変更"]).map((t) => h("span", { class: "tag plain" }, t))),
+    h("div", { class: "actions" },
+      h("button", { class: "btn small primary", type: "button", onclick: () => decideChange(k, true) }, "承認する"),
+      h("button", { class: "btn small", type: "button", onclick: () => decideChange(k, false) }, "却下する"),
+    ));
+}
+
+async function decideChange(k, ok) {
+  await api(`/api/kinds/${k.id}`, { method: "PATCH", body: ok ? { fields: k.proposed_fields, proposed_fields: null } : { proposed_fields: null } });
+  await loadKinds();
+  toast(ok ? `「${k.name}」の項目を変えました` : "却下しました");
+  renderReview();
 }
 
 async function decideKind(k, status) {
@@ -503,6 +594,15 @@ async function reload() {
 
 $("reload").addEventListener("click", reload);
 $("read-reload").addEventListener("click", reload);
+$("read-pin").addEventListener("click", togglePin);
+$("read-memo").addEventListener("click", () => setMemoOpen($("memo-pane").hidden));
+$("memo-text").addEventListener("input", () => {
+  $("memo-state").textContent = "";
+  clearTimeout(memoTimer);
+  memoTimer = setTimeout(saveMemo, 1500);
+});
+$("memo-text").addEventListener("blur", saveMemo);
+try { setMemoOpen(localStorage.getItem("zzz.memo") === "1"); } catch {}
 
 const ta = $("capture-text");
 ta.addEventListener("input", () => autoGrow(ta));

@@ -64,6 +64,13 @@ CREATE TABLE IF NOT EXISTS items (
 );
 CREATE INDEX IF NOT EXISTS items_kind ON items(kind_id, status);
 
+-- When the user last opened an item's file. Not in change_log: opening is not
+-- a change to undo, and it would bury real changes in the log.
+CREATE TABLE IF NOT EXISTS opened (
+    item_id TEXT PRIMARY KEY,
+    at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS change_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     at TEXT NOT NULL,
@@ -90,7 +97,13 @@ DEFAULT_KINDS = [
     ("チェックリスト", []),
 ]
 
-_JSON_COLS = {"fields"}
+_JSON_COLS = {"fields", "proposed_fields"}
+# Columns added after the first release. Rows in older log entries lack them,
+# so undo fills these defaults in before comparing or restoring.
+_ADDED_COLS = {
+    "items": {"pinned": ("INTEGER NOT NULL DEFAULT 0", 0)},
+    "kinds": {"proposed_fields": ("TEXT", None)},
+}
 _TABLES = {"entries", "kinds", "items"}
 
 
@@ -138,7 +151,7 @@ def _row(r: sqlite3.Row | None) -> dict | None:
         return None
     d = dict(r)
     for k in _JSON_COLS & d.keys():
-        d[k] = json.loads(d[k])
+        d[k] = json.loads(d[k]) if d[k] is not None else None
     return d
 
 
@@ -179,6 +192,11 @@ def _write(conn, actor: str, table: str, op: str, before: dict | None, after: di
 def init() -> None:
     with _tx() as conn:
         conn.executescript(_SCHEMA)
+        for table, cols in _ADDED_COLS.items():
+            have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for col, (decl, _) in cols.items():
+                if col not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
         if conn.execute("SELECT COUNT(*) FROM kinds").fetchone()[0] == 0:
             for name, fields in DEFAULT_KINDS:
                 _write(conn, "system", "kinds", "create", None, {
@@ -272,7 +290,7 @@ def add_kind(name: str, fields: list, actor: str, status: str) -> dict:
         raise Invalid("kind name is empty")
     _check_fields_def(fields)
     k = {"id": str(uuid.uuid4()), "name": name, "fields": fields,
-         "status": status, "created_at": _now(), "created_by": actor}
+         "status": status, "created_at": _now(), "created_by": actor, "proposed_fields": None}
     with _tx() as conn:
         if conn.execute("SELECT 1 FROM kinds WHERE name=?", (name,)).fetchone():
             raise Conflict(f"kind '{name}' already exists")
@@ -285,6 +303,8 @@ def update_kind(kind_id: str, changes: dict, actor: str) -> dict:
         raise Invalid(f"status must be one of {sorted(KIND_STATUSES)}")
     if "fields" in changes:
         _check_fields_def(changes["fields"])
+    if changes.get("proposed_fields") is not None:
+        _check_fields_def(changes["proposed_fields"])
     with _tx() as conn:
         before = _get(conn, "kinds", kind_id)
         after = {**before, **changes}
@@ -397,7 +417,7 @@ def add_item(data: dict, actor: str) -> dict:
         it = {"id": str(uuid.uuid4()), "kind_id": kind["id"], "title": title,
               "body": data.get("body") or "", "fields": values, "status": "open",
               "due": data.get("due"), "entry_id": data.get("entry_id"),
-              "created_at": now, "updated_at": now, "completed_at": None}
+              "created_at": now, "updated_at": now, "completed_at": None, "pinned": 0}
         _write(conn, actor, "items", "create", None, it)
     return it
 
@@ -408,6 +428,8 @@ def update_item(item_id: str, changes: dict, actor: str) -> dict:
     if "title" in changes and not str(changes["title"]).strip():
         raise Invalid("title is empty")
     _check_due(changes.get("due"))
+    if "pinned" in changes:
+        changes = {**changes, "pinned": int(bool(changes["pinned"]))}
     with _tx() as conn:
         before = _get(conn, "items", item_id)
         after = {**before, **{k: v for k, v in changes.items() if k != "kind"}}
@@ -473,6 +495,30 @@ def file_path(file_id: str) -> Path:
 # ── today / log ───────────────────────────────────────────────────────────────
 
 
+def mark_opened(item_id: str) -> None:
+    with _tx() as conn:
+        _get(conn, "items", item_id)
+        conn.execute("INSERT OR REPLACE INTO opened (item_id, at) VALUES (?, ?)", (item_id, _now()))
+
+
+def reading(limit: int = 6) -> list[dict]:
+    """Open items that hold a file: pinned first, then the most recently
+    opened, then the newest. Each row carries `opened_at` (or None)."""
+    file_field = {k["id"]: f["name"] for k in list_kinds("active") for f in k["fields"] if f["type"] == "file"}
+    ids = list(file_field)
+    if not ids:
+        return []
+    with _tx() as conn:
+        rows = conn.execute(
+            "SELECT items.*, opened.at AS opened_at FROM items LEFT JOIN opened ON opened.item_id=items.id"
+            f" WHERE items.status='open' AND items.kind_id IN ({','.join('?' * len(ids))})"
+            " ORDER BY items.pinned DESC, opened.at IS NULL, opened.at DESC, items.created_at DESC",
+            ids,
+        )
+        items = [_row(r) for r in rows]
+    return [i for i in items if i["fields"].get(file_field[i["kind_id"]])][:limit]
+
+
 def today(days_ahead: int = 3) -> dict:
     d = date.today()
     horizon = (d + timedelta(days=days_ahead + 1)).isoformat()
@@ -481,7 +527,9 @@ def today(days_ahead: int = 3) -> dict:
         "entries": list_entries(day=d.isoformat()),
         "due_soon": list_items(status="open", due_before=horizon),
         "open_tasks": list_items(kind="タスク", status="open"),
-        "review": len(list_kinds(status="proposed")),
+        "reading": reading(),
+        "review": len(list_kinds(status="proposed"))
+        + sum(1 for k in list_kinds("active") if k["proposed_fields"] is not None),
     }
 
 
@@ -512,6 +560,9 @@ def undo(log_id: int, actor: str, by_agent: bool = False) -> dict:
         table, row_id = r["table_name"], r["row_id"]
         before = json.loads(r["before"]) if r["before"] else None
         after = json.loads(r["after"]) if r["after"] else None
+        defaults = {c: d for c, (_, d) in _ADDED_COLS.get(table, {}).items()}
+        before = {**defaults, **before} if before is not None else None
+        after = {**defaults, **after} if after is not None else None
         current = _row(conn.execute(f"SELECT * FROM {table} WHERE id=?", (row_id,)).fetchone())
         if current != after:
             raise Conflict("the row was changed after this; undo the later change first")

@@ -129,3 +129,57 @@ def test_add_file_folds_local_assets_into_the_page(tmp_path):
     assert 'src="https://cdn.example/x.js"' in out  # remote and missing files stay as they are
     assert 'src="data:image/svg+xml;base64,' in out and 'src="missing.png"' in out
     assert 'href="#s2"' in out
+
+
+def test_home_lists_file_items_pinned_then_recently_opened(client):
+    ids = {}
+    for title in ("古い資料", "最近開いた資料", "ピンの資料"):
+        f = upload(client, HTML, "a.html").json()["id"]
+        ids[title] = client.post("/api/items", headers=AGENT, json={
+            "kind": "資料", "title": title, "fields": {"ファイル": f}}).json()["id"]
+    # a task never shows up among the reading items
+    client.post("/api/items", json={"kind": "タスク", "title": "買い物"})
+    assert client.post(f"/api/items/{ids['最近開いた資料']}/opened").status_code == 200
+    # an agent may pin (prioritise) an item, the same flag as the user's bookmark
+    r = client.patch(f"/api/items/{ids['ピンの資料']}", headers=AGENT, json={"pinned": True})
+    assert r.status_code == 200 and r.json()["pinned"] == 1
+    reading = client.get("/api/today").json()["reading"]
+    assert [i["title"] for i in reading] == ["ピンの資料", "最近開いた資料", "古い資料"]
+    assert reading[1]["opened_at"] and reading[0]["opened_at"] is None
+    # opening is not a change: nothing new in the log
+    assert all(l["row_id"] != ids["最近開いた資料"] or l["op"] == "create" for l in client.get("/api/log").json()["log"])
+
+
+def test_agent_proposes_more_choices_and_the_user_approves(client):
+    kind = next(k for k in client.get("/api/kinds").json()["kinds"] if k["name"] == "資料")
+    assert kind["proposed_fields"] is None
+    wider = [{"name": "ファイル", "type": "file"},
+             {"name": "分類", "type": "choice", "options": ["調べごと", "英語", "就活"]}]
+    # an agent still cannot change the kind itself
+    assert client.patch(f"/api/kinds/{kind['id']}", headers=AGENT, json={"fields": wider}).status_code == 403
+    r = client.post(f"/api/kinds/{kind['id']}/proposal", headers=AGENT, json={"fields": wider})
+    assert r.status_code == 200, r.text
+    assert client.get("/api/today").json()["review"] == 1
+    k = next(k for k in client.get("/api/kinds").json()["kinds"] if k["name"] == "資料")
+    assert k["fields"] == kind["fields"] and k["proposed_fields"] == wider
+    assert client.post(f"/api/kinds/{kind['id']}/proposal", headers=AGENT,
+                       json={"fields": [{"name": "x", "type": "nope"}]}).status_code == 400
+    r = client.patch(f"/api/kinds/{kind['id']}", json={"fields": wider, "proposed_fields": None})
+    assert r.status_code == 200 and r.json()["fields"] == wider and r.json()["proposed_fields"] is None
+    assert client.get("/api/today").json()["review"] == 0
+
+
+def test_undo_still_works_for_log_rows_written_before_pinned_existed(client):
+    f = upload(client, HTML, "a.html").json()["id"]
+    item = client.post("/api/items", headers=AGENT, json={
+        "kind": "資料", "title": "t", "fields": {"ファイル": f}}).json()
+    client.patch(f"/api/items/{item['id']}", headers=AGENT, json={"title": "t2"})
+    # rewrite that log row as an older version would have stored it
+    import json
+    with db._tx() as conn:
+        row = conn.execute("SELECT id, before, after FROM change_log ORDER BY id DESC LIMIT 1").fetchone()
+        old = {k: {x: y for x, y in json.loads(row[k]).items() if x != "pinned"} for k in ("before", "after")}
+        conn.execute("UPDATE change_log SET before=?, after=? WHERE id=?",
+                     (json.dumps(old["before"]), json.dumps(old["after"]), row["id"]))
+    assert client.post(f"/api/log/{row['id']}/undo", headers=AGENT).status_code == 200
+    assert client.get(f"/api/items/{item['id']}").json()["title"] == "t"
