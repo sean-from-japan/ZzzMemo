@@ -106,6 +106,7 @@ function currentTab() {
 
 async function showTab() {
   await saveMemo(); // a memo still being typed belongs to the item that was open
+  await savePageState();
   const tab = currentTab();
   if (tab !== "read") state.from = location.hash || "#today";
   document.body.classList.toggle("reading", tab === "read");
@@ -460,6 +461,37 @@ async function saveMemo() {
     $("memo-state").textContent = "保存できませんでした";
   }
 }
+
+// A stored page's localStorage (answers in a workbook) arrives here from the
+// frame (page_storage.js) and is saved for the item a moment after it stops
+// changing, when leaving the reading screen, and when the app is hidden.
+let pageState = null; // { item, data } not saved yet
+let pageStateTimer;
+async function savePageState(keepalive = false) {
+  clearTimeout(pageStateTimer);
+  const p = pageState;
+  if (!p) return;
+  pageState = null;
+  try {
+    const res = await fetch(`/api/items/${p.item}/page-state`, {
+      method: "PUT", keepalive, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: p.data }),
+    });
+    if (!res.ok) throw new Error(String(res.status));
+  } catch {
+    if (!keepalive) toast("資料に書いた内容を保存できませんでした");
+  }
+}
+window.addEventListener("message", (e) => {
+  const m = e.data?.zzzPageState;
+  // only the frame on screen, and only for the item it shows
+  if (!m || e.source !== $("read-frame").contentWindow || m.item !== state.readItem?.id) return;
+  pageState = { item: m.item, data: m.data };
+  clearTimeout(pageStateTimer);
+  pageStateTimer = setTimeout(savePageState, 800);
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") savePageState(true);
+});
 
 // ── review ───────────────────────────────────────────────────────────────────
 

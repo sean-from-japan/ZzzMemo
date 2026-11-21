@@ -71,6 +71,14 @@ CREATE TABLE IF NOT EXISTS opened (
     at TEXT NOT NULL
 );
 
+-- What a page saved in its localStorage (answers in a workbook, checked
+-- boxes). Not in change_log: a page saves on every keystroke.
+CREATE TABLE IF NOT EXISTS page_state (
+    item_id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS change_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     at TEXT NOT NULL,
@@ -499,6 +507,37 @@ def mark_opened(item_id: str) -> None:
     with _tx() as conn:
         _get(conn, "items", item_id)
         conn.execute("INSERT OR REPLACE INTO opened (item_id, at) VALUES (?, ?)", (item_id, _now()))
+
+
+MAX_PAGE_STATE_BYTES = 1024 * 1024
+
+
+def item_for_file(file_id: str) -> str | None:
+    """The id of an item whose field holds this file, or None."""
+    with _tx() as conn:
+        for r in conn.execute("SELECT id, fields FROM items WHERE fields LIKE ? ORDER BY status='open' DESC",
+                              (f'%"{file_id}"%',)):
+            if file_id in json.loads(r["fields"]).values():
+                return r["id"]
+    return None
+
+
+def get_page_state(item_id: str) -> dict:
+    with _tx() as conn:
+        r = conn.execute("SELECT data FROM page_state WHERE item_id=?", (item_id,)).fetchone()
+    return json.loads(r["data"]) if r else {}
+
+
+def set_page_state(item_id: str, data: dict) -> None:
+    if not all(isinstance(k, str) and isinstance(v, str) for k, v in data.items()):
+        raise Invalid("page state keys and values must be strings")
+    text = json.dumps(data, ensure_ascii=False)
+    if len(text.encode()) > MAX_PAGE_STATE_BYTES:
+        raise Invalid("page state is larger than 1 MB")
+    with _tx() as conn:
+        _get(conn, "items", item_id)
+        conn.execute("INSERT OR REPLACE INTO page_state (item_id, data, at) VALUES (?, ?, ?)",
+                     (item_id, text, _now()))
 
 
 def reading(limit: int = 6) -> list[dict]:

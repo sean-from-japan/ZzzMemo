@@ -10,6 +10,8 @@ Who is calling decides what is allowed:
 
 from __future__ import annotations
 
+import json
+import re
 import secrets
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -221,6 +223,31 @@ _HTML_HEADERS = {
 # Inlined: a sandboxed page has no origin, and some browsers block its requests.
 _PAGER = (b"<script>" + (Path(__file__).parent.parent / "static" / "slide_paging.js").read_bytes()
           + b"</script>")
+_STORAGE = (Path(__file__).parent.parent / "static" / "page_storage.js").read_text().strip()
+_HEAD = re.compile(rb"<head(?:\s[^>]*)?>", re.I)
+_HTML = re.compile(rb"<html(?:\s[^>]*)?>", re.I)
+
+
+def _storage_script(file_id: str) -> bytes:
+    """localStorage for the page, filled with what it saved last time."""
+    item_id = db.item_for_file(file_id)
+    data = db.get_page_state(item_id) if item_id else {}
+    # "<" escaped so a saved value cannot close the script tag
+    args = json.dumps([item_id, data], ensure_ascii=False).replace("<", "\\u003c")
+    return f"<script>{_STORAGE}.apply(null, {args});</script>".encode()
+
+
+class PageState(BaseModel):
+    data: dict[str, Any]
+
+
+# Only the app's reading screen saves a page's state; agents cannot overwrite
+# what the user typed into a page.
+@router.put("/api/items/{item_id}/page-state")
+def put_page_state(item_id: str, body: PageState, request: Request):
+    _user_only(_actor(request))
+    _call(db.set_page_state, item_id, body.data)
+    return {"ok": True}
 
 
 @router.post("/api/files")
@@ -243,6 +270,10 @@ def get_file(file_id: str):
     data = path.read_bytes()
     i = data.lower().rfind(b"</body>")
     data = data[:i] + _PAGER + data[i:] if i >= 0 else data + _PAGER
+    # before the page's own scripts, which may read localStorage at once
+    m = _HEAD.search(data) or _HTML.search(data)
+    at = m.end() if m else 0
+    data = data[:at] + _storage_script(file_id) + data[at:]
     return Response(data, media_type=db.FILE_TYPES[ext], headers=_HTML_HEADERS)
 
 

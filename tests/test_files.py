@@ -63,7 +63,9 @@ def test_html_is_served_sandboxed_with_the_slide_pager(client):
     csp = r.headers["content-security-policy"]
     assert csp.startswith("sandbox") and "allow-scripts" in csp and "allow-same-origin" not in csp
     assert r.headers["x-content-type-options"] == "nosniff"
-    assert r.content.startswith(HTML[:-len(b"</body></html>")] + b"<script>")
+    head = b"<!DOCTYPE html><html><head>"
+    assert r.content.startswith(head + b"<script>// Stands in for localStorage")
+    assert b"<title>t</title></head><body><p>sample</p><script>" in r.content
     assert b'querySelectorAll(".slide")' in r.content
     assert r.content.endswith(b"</script></body></html>")
 
@@ -183,3 +185,36 @@ def test_undo_still_works_for_log_rows_written_before_pinned_existed(client):
                      (json.dumps(old["before"]), json.dumps(old["after"]), row["id"]))
     assert client.post(f"/api/log/{row['id']}/undo", headers=AGENT).status_code == 200
     assert client.get(f"/api/items/{item['id']}").json()["title"] == "t"
+
+
+def _embedded(content: bytes):
+    import json
+    start = content.index(b".apply(null, ") + len(b".apply(null, ")
+    return json.loads(content[start:content.index(b");</script>", start)])
+
+
+def test_page_state_is_saved_by_the_user_and_served_back_into_the_page(client):
+    f = upload(client, HTML, "workbook.html").json()["id"]
+    # a file with no item yet gets an empty store that saves nowhere
+    assert _embedded(client.get(f"/files/{f}").content) == [None, {}]
+    item = client.post("/api/items", headers=AGENT, json={
+        "kind": "資料", "title": "面接の練習帳", "fields": {"ファイル": f}}).json()
+    assert _embedded(client.get(f"/files/{f}").content) == [item["id"], {}]
+    saved = {"wb": '{"answers":{"q1":"</script><b>x</b>"}}'}
+    url = f"/api/items/{item['id']}/page-state"
+    assert client.put(url, json={"data": saved}).status_code == 200
+    r = client.get(f"/files/{f}")
+    # a saved value cannot close the script tag it is embedded in
+    assert b"</script><b>" not in r.content
+    assert _embedded(r.content) == [item["id"], saved]
+    # agents cannot overwrite what the user typed; bad shapes and sizes are refused
+    assert client.put(url, headers=AGENT, json={"data": {}}).status_code == 403
+    assert client.put(url, json={"data": {"n": 1}}).status_code == 400
+    assert client.put("/api/items/nope/page-state", json={"data": {}}).status_code == 404
+    # saving is not a change: nothing new in the log
+    assert all(l["row_id"] != item["id"] or l["op"] == "create" for l in client.get("/api/log").json()["log"])
+
+
+def test_page_state_goes_after_html_when_there_is_no_head(client):
+    f = upload(client, b"<html lang=ja><header>h</header><body>b</body></html>", "a.html").json()["id"]
+    assert client.get(f"/files/{f}").content.startswith(b"<html lang=ja><script>// Stands in")
