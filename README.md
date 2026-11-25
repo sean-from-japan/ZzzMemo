@@ -46,7 +46,7 @@ The server decides from how the request is authenticated, not from what the agen
 
 ## Tools for agents
 
-`mcp_server.py` exposes 18 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `propose_kind_change`, `list_proposals`, `decide_proposal`, `add_file`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server:
+`mcp_server.py` exposes 19 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `propose_kind_change`, `list_proposals`, `decide_proposal`, `add_file`, `sync_folder`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server. `sync_folder` brings the HTML and PDF files of a local folder (default `~/myLife/reports`) into 資料: new files become items, changed files replace the file of their item, deleted files mark it done, and unchanged files are skipped, so it is safe to run after every report. A page can set its 分類 with `<meta name="zzzmemo-category" content="お金">`, or stay out with `content="skip"`.
 
 ```bash
 python mcp_server.py list

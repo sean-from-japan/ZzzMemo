@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime
+import html
 import json
 import mimetypes
 import os
@@ -303,24 +304,10 @@ def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict]
     files by relative path (KaTeX, 図/*.svg) are folded into the uploaded page.
     fields: values for the kind's other fields, e.g. {"分類": "調べごと"}."""
     path = os.path.expanduser(path)
-    with open(path, "rb") as fh:
-        data = fh.read()
-    # the document's date in the app: when the file was last changed here
-    file_at = datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")
-    if path.lower().endswith((".html", ".htm")):
-        data = _inline_assets(data.decode("utf-8"), os.path.dirname(path)).encode("utf-8")
-    kinds =_req("GET", "/api/kinds")["kinds"]
-    k = next((x for x in kinds if kind in (x["id"], x["name"])), None)
-    if k is None:
-        raise RuntimeError(f"unknown kind '{kind}'")
     # checked before uploading, so a refused item leaves no stray file behind
-    if k["status"] != "active":
-        raise RuntimeError(f"kind '{k['name']}' is {k['status']}; the user must approve it in the app first")
-    file_field = next((f["name"] for f in k["fields"] if f["type"] == "file"), None)
-    if file_field is None:
-        raise RuntimeError(f"kind '{k['name']}' has no file field; propose one with propose_kind")
-    uploaded = _req("POST", "/api/files", query={"name": os.path.basename(path)}, raw=data)
-    values = {**(fields or {}), file_field: uploaded["id"]}
+    k, file_field = _file_kind(kind)
+    file_id, file_at = _upload(path)
+    values = {**(fields or {}), file_field: file_id}
     same = [i for i in _req("GET", "/api/items", query={"kind": k["id"], "q": title})["items"]
             if i["title"] == title]
     if same:
@@ -332,6 +319,161 @@ def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict]
     item = _req("POST", "/api/items", {"kind": k["id"], "title": title, "fields": values, "body": body,
                                        "file_at": file_at})
     return _out({"replaced": False, "item": _item(item)})
+
+
+def _file_kind(kind: str) -> tuple:
+    """The active kind named `kind` and the name of its file field."""
+    k = next((x for x in _req("GET", "/api/kinds")["kinds"] if kind in (x["id"], x["name"])), None)
+    if k is None:
+        raise RuntimeError(f"unknown kind '{kind}'")
+    if k["status"] != "active":
+        raise RuntimeError(f"kind '{k['name']}' is {k['status']}; the user must approve it in the app first")
+    file_field = next((f["name"] for f in k["fields"] if f["type"] == "file"), None)
+    if file_field is None:
+        raise RuntimeError(f"kind '{k['name']}' has no file field; propose one with propose_kind")
+    return k, file_field
+
+
+def _file_at(path: str) -> str:
+    # the document's date in the app: when the file was last changed here
+    return datetime.fromtimestamp(os.path.getmtime(path)).isoformat(timespec="seconds")
+
+
+def _upload(path: str) -> tuple:
+    """Upload a local HTML or PDF file; return (file id, file_at)."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if path.lower().endswith((".html", ".htm")):
+        data = _inline_assets(data.decode("utf-8"), os.path.dirname(path)).encode("utf-8")
+    uploaded = _req("POST", "/api/files", query={"name": os.path.basename(path)}, raw=data)
+    return uploaded["id"], _file_at(path)
+
+
+# What sync_folder last sent, per server and folder, so an unchanged file is
+# not uploaded again and a deleted one can be found. Outside the repository.
+SYNC_STATE = os.path.expanduser(os.environ.get("ZZZMEMO_SYNC_STATE", "~/.local/state/zzzmemo/sync.json"))
+_TITLE = re.compile(r"<title\b[^>]*>(.*?)</title>", re.I | re.S)
+_META = re.compile(r"<meta\b[^>]*>", re.I)
+
+
+def _title_and_category(path: str) -> tuple:
+    """The page's <title> (else the file name) and its zzzmemo-category mark."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if not path.lower().endswith((".html", ".htm")):
+        return stem.replace("_", " "), None
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        page = fh.read()
+    t = _TITLE.search(page)
+    title = " ".join(html.unescape(t.group(1)).split()) if t else ""
+    category = None
+    for m in _META.finditer(page):
+        if re.search(r"""\bname=["']zzzmemo-category["']""", m.group(0), re.I):
+            c = re.search(r"""\bcontent=["']([^"']*)["']""", m.group(0), re.I)
+            category = html.unescape(c.group(1)).strip() if c else None
+    return title or stem.replace("_", " "), category
+
+
+@tool
+def sync_folder(folder: str = "~/myLife/reports", kind: str = "資料",
+                default_category: str = "調べごと") -> str:
+    """Bring the HTML and PDF files directly in a local folder into a kind
+    with a file field (default: ~/myLife/reports into 資料). Safe to run
+    again: unchanged files are skipped.
+    - New file: a new item titled by the page's <title> (a PDF: its file
+      name), 分類 from <meta name="zzzmemo-category" content="お金"> or
+      default_category. content="skip" keeps a page out.
+    - Changed file: the file of the item made from it is replaced; its
+      status and 分類 stay. The title follows a changed <title>.
+    - The first time a file is seen, an item with the same title is taken
+      as its item, and not uploaded again if its date matches the file.
+    - Deleted file: its item is marked done (not trashed).
+    A PDF next to an HTML file of the same name is its copy and is skipped."""
+    folder = os.path.abspath(os.path.expanduser(folder))
+    try:
+        with open(SYNC_STATE, encoding="utf-8") as fh:
+            state = json.load(fh)
+    except FileNotFoundError:
+        state = {}
+    seen = state.setdefault(BASE_URL, {}).setdefault(folder, {})
+    local = {}
+    for name in sorted(os.listdir(folder)):
+        stem, ext = os.path.splitext(name)
+        ext = ext.lower()
+        if not os.path.isfile(os.path.join(folder, name)) or ext not in (".html", ".htm", ".pdf"):
+            continue
+        if ext == ".pdf" and any(os.path.isfile(os.path.join(folder, stem + e)) for e in (".html", ".htm")):
+            continue
+        local[name] = os.path.join(folder, name)
+    done = {"added": [], "replaced": [], "retitled": [], "marked_done": [], "skipped": [], "unchanged": 0}
+    items = k = file_field = choice = None  # fetched only when something changed
+
+    def load():
+        nonlocal items, k, file_field, choice
+        if items is None:
+            k, file_field = _file_kind(kind)
+            choice = next((f for f in k["fields"] if f["type"] == "choice"), None)
+            items = {i["id"]: i for i in _req("GET", "/api/items", query={"kind": k["id"], "status": "all"})["items"]}
+
+    def save():
+        os.makedirs(os.path.dirname(SYNC_STATE), exist_ok=True)
+        with open(SYNC_STATE, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, ensure_ascii=False, indent=1)
+
+    for name, path in local.items():
+        prev = seen.get(name)
+        mtime, size = _file_at(path), os.path.getsize(path)
+        if prev and not prev.get("gone") and prev["mtime"] == mtime and prev["size"] == size:
+            done["unchanged"] += 1
+            continue
+        title, category = _title_and_category(path)
+        if category == "skip":
+            done["skipped"].append(name)
+            continue
+        load()
+        item = items.get(prev["item"]) if prev else None
+        if item is None and not prev:
+            claimed = {v["item"] for v in seen.values()}  # two pages with one <title> stay apart
+            item = next((i for i in items.values() if i["title"] == title and i["status"] != "trashed"
+                         and i["id"] not in claimed), None)
+            if item and item.get("file_at") == mtime:
+                # uploaded before by hand (add_file): only remember it
+                seen[name] = {"item": item["id"], "mtime": mtime, "size": size, "title": title}
+                save()
+                done["unchanged"] += 1
+                continue
+        file_id, file_at = _upload(path)
+        if item:
+            changes = {"fields": {file_field: file_id}, "file_at": file_at}
+            # follow a <title> changed here, not a title the user changed in the app
+            if prev and prev.get("title") != title and item["title"] == prev.get("title"):
+                changes["title"] = title
+                done["retitled"].append(title)
+            item = _req("PATCH", f"/api/items/{item['id']}", changes)
+            done["replaced"].append(item["title"])
+        else:
+            values = {file_field: file_id}
+            if choice:
+                options = choice.get("options") or []
+                pick = category if category in options else default_category
+                if pick in options:
+                    values[choice["name"]] = pick
+            item = _req("POST", "/api/items", {"kind": k["id"], "title": title, "fields": values,
+                                               "file_at": file_at})
+            done["added"].append(title)
+        seen[name] = {"item": item["id"], "mtime": file_at, "size": size, "title": title}
+        save()  # after each file, so a later failure does not upload this one again
+
+    for name, prev in seen.items():
+        if name in local or prev.get("gone"):
+            continue
+        load()
+        item = items.get(prev["item"])
+        if item and item["status"] == "open":
+            _req("PATCH", f"/api/items/{item['id']}", {"status": "done"})
+            done["marked_done"].append(item["title"])
+        prev["gone"] = True
+        save()
+    return _out(done)
 
 
 @tool

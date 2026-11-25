@@ -4,6 +4,7 @@ Each test gets its own temporary DB and files folder; nothing under data/ is
 touched. The documents are made-up samples.
 """
 
+import json
 import uuid
 
 import pytest
@@ -287,3 +288,80 @@ def test_agents_decide_proposals_and_main_kinds_through_the_api(client):
     assert r.status_code == 200 and r.json()["main"] == 1
     # direct edits of a kind stay with the user
     assert client.patch(f"/api/kinds/{k['id']}", headers=AGENT, json={"name": "x"}).status_code == 403
+
+
+def test_sync_folder_adds_once_replaces_changes_and_marks_deleted_done(client, tmp_path, monkeypatch):
+    import os
+    import mcp_server
+
+    def req(method, path, body=None, query=None, raw=None):
+        params = {k: v for k, v in (query or {}).items() if v is not None}
+        r = client.request(method, path, params=params, headers=AGENT,
+                           **({"content": raw} if raw is not None else {"json": body}))
+        if r.status_code >= 400:
+            raise RuntimeError(f"HTTP {r.status_code}: {r.text}")
+        return r.json()
+
+    monkeypatch.setattr(mcp_server, "_req", req)
+    monkeypatch.setattr(mcp_server, "SYNC_STATE", str(tmp_path / "state" / "sync.json"))
+    folder = tmp_path / "reports"
+    folder.mkdir()
+
+    def page(title, extra=""):
+        return f"<!DOCTYPE html><html><head><title>{title}</title>{extra}</head><body>x</body></html>"
+
+    (folder / "chair.html").write_text(page("椅子の比較", '<meta name="zzzmemo-category" content="英語">'),
+                                       encoding="utf-8")
+    (folder / "chair.pdf").write_bytes(PDF)  # a copy of chair.html
+    (folder / "bag_notes.pdf").write_bytes(PDF)
+    (folder / "private.html").write_text(page("載せない", '<meta content="skip" name="zzzmemo-category">'),
+                                         encoding="utf-8")
+    (folder / "notes.md").write_text("# md", encoding="utf-8")
+    (folder / "sub").mkdir()
+    (folder / "sub" / "index.html").write_text(page("中のページ"), encoding="utf-8")
+    # uploaded earlier by hand with add_file: same title and date
+    (folder / "old.html").write_text(page("前に上げた &amp; 資料"), encoding="utf-8")
+    os.utime(folder / "old.html", (1_700_000_000, 1_700_000_000))
+    old_id = client.post("/api/items", headers=AGENT, json={
+        "kind": "資料", "title": "前に上げた & 資料", "fields": {"ファイル": upload(client, HTML, "o.html").json()["id"]},
+        "file_at": mcp_server._file_at(str(folder / "old.html"))}).json()["id"]
+
+    def sync():
+        return json.loads(mcp_server.sync_folder(str(folder)))
+
+    files = lambda: len(list((tmp_path / "files").iterdir()))
+    before = files()
+    out = sync()
+    assert sorted(out["added"]) == ["bag notes", "椅子の比較"]
+    assert out["skipped"] == ["private.html"] and out["unchanged"] == 1
+    assert files() == before + 2  # old.html was not uploaded again
+    items = {i["title"]: i for i in client.get("/api/items", params={"kind": "資料"}).json()["items"]}
+    assert set(items) == {"bag notes", "椅子の比較", "前に上げた & 資料"}
+    assert items["椅子の比較"]["fields"]["分類"] == "英語"
+    assert items["bag notes"]["fields"]["分類"] == "調べごと"
+
+    # running again changes nothing
+    again = sync()
+    assert again["added"] == [] and again["replaced"] == [] and again["unchanged"] == 3
+    assert files() == before + 2
+
+    # a changed page replaces the file of the same item; 分類 and status stay
+    client.patch(f"/api/items/{items['椅子の比較']['id']}", json={"status": "done"})
+    (folder / "chair.html").write_text(page("椅子の比較 改訂"), encoding="utf-8")
+    os.utime(folder / "chair.html", (1_800_000_000, 1_800_000_000))
+    out = sync()
+    assert out["replaced"] == ["椅子の比較 改訂"] and out["retitled"] == ["椅子の比較 改訂"] and out["added"] == []
+    chair = client.get(f"/api/items/{items['椅子の比較']['id']}").json()
+    assert chair["title"] == "椅子の比較 改訂" and chair["status"] == "done"
+    assert chair["fields"]["分類"] == "英語" and chair["fields"]["ファイル"] != items["椅子の比較"]["fields"]["ファイル"]
+
+    # a deleted file marks its item done, once
+    (folder / "bag_notes.pdf").unlink()
+    (folder / "old.html").unlink()
+    out = sync()
+    assert sorted(out["marked_done"]) == ["bag notes", "前に上げた & 資料"]
+    assert client.get(f"/api/items/{old_id}").json()["status"] == "done"
+    assert sync() == {"added": [], "replaced": [], "retitled": [], "marked_done": [], "skipped": ["private.html"],
+                      "unchanged": 1}
+    # the change is recorded under the agent's name
+    assert client.get("/api/log").json()["log"][0]["actor"] == "claude"

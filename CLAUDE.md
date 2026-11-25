@@ -17,7 +17,7 @@ ZzzMemo は、人が1行ずつ書き、AIエージェントが後から仕分け
 | `web/deps.py` | 認証の設定とセッショントークン |
 | `web/routers/api.py` | REST API と、本人／エージェントで許す操作の区別 |
 | `web/static/` | `index.html`（CSS込み）、`app.js`、`manifest.json`、`sw.js`（キャッシュしない）、`slide_paging.js`（資料のHTMLに埋め込むスライド送り）、`page_storage.js`（資料のHTMLの先頭に埋め込む `localStorage` の代わり） |
-| `mcp_server.py` | エージェント用の18ツール。引数なしでMCPサーバー、`call <tool> '<json>'` でCLI |
+| `mcp_server.py` | エージェント用の19ツール（`sync_folder` は手元のフォルダの資料をまとめて入れる。送った内容は `~/.local/state/zzzmemo/sync.json` に覚える）。引数なしでMCPサーバー、`call <tool> '<json>'` でCLI |
 | `migrate_v1.py` | 第1版の表から一度だけ移す（本番では2026-11-19に実行済み） |
 | `tests/` | `python -m pytest tests` |
 
