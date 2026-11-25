@@ -95,6 +95,24 @@ function fileOf(item) {
   return f ? item.fields?.[f.name] || null : null;
 }
 const activeKinds = () => state.kinds.filter((k) => k.status === "active");
+// A kind with a "document" field holds texts written in the app's editor.
+const docFieldOf = (kind) => kind?.fields.find((f) => f.type === "document") || null;
+// Where tapping an item goes: the reading screen for a file, the editor for a
+// document, else nowhere (the detail sheet opens).
+function openHref(item) {
+  if (fileOf(item)) return `#read/${item.id}`;
+  if (docFieldOf(kindById(item.kind_id))) return `#doc/${item.id}`;
+  return null;
+}
+const FILE_WORDS = { pdf: "PDF", html: "HTML", docx: "Word", md: "Markdown", txt: "テキスト",
+  png: "画像", jpg: "画像", gif: "画像", webp: "画像" };
+const fileWord = (file) => FILE_WORDS[file.split(".").pop()] || "ファイル";
+// A time as the server stores it: local, without a zone
+function localTime(ms) {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${localDay(d)}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
 // The date of a file item's document (its last change before upload), e.g.
 // 「8月29日」; the year is added when it is not this year.
 function fileDate(item) {
@@ -121,6 +139,7 @@ function optionMark(f, value) {
 function currentTab() {
   const t = location.hash.slice(1);
   if (t.startsWith("read/")) return "read";
+  if (t.startsWith("doc/")) return "doc";
   if (t.startsWith("list/")) return "list";
   return ["today", "list", "review"].includes(t) ? t : "today";
 }
@@ -128,13 +147,16 @@ function currentTab() {
 async function showTab() {
   await saveMemo(); // a memo still being typed belongs to the item that was open
   await savePageState();
+  await saveDoc();
   const tab = currentTab();
-  if (tab !== "read") state.from = location.hash || "#today";
-  document.body.classList.toggle("reading", tab === "read");
+  if (tab !== "read" && tab !== "doc") state.from = location.hash || "#today";
+  document.body.classList.toggle("reading", tab === "read" || tab === "doc");
   document.querySelectorAll("section.view").forEach((s) => s.classList.toggle("on", s.id === tab));
   document.querySelectorAll(".seg a").forEach((a) => a.classList.toggle("on", a.dataset.tab === tab));
   if (tab !== "read") $("read-frame").removeAttribute("src");
+  if (tab !== "doc") { $("doc-frame").removeAttribute("src"); state.docItem = null; }
   if (tab === "read") await renderRead(location.hash.slice(6));
+  if (tab === "doc") await renderDoc(location.hash.slice(5));
   if (tab === "today") await renderToday();
   if (tab === "list") await renderList();
   if (tab === "review") await renderReview();
@@ -160,9 +182,10 @@ function itemRow(item, { showKind = false, groupedBy = null } = {}) {
   const due = dueInfo(item.due);
   const done = item.status === "done";
   const file = fileOf(item);
+  const href = openHref(item);
   const types = Object.fromEntries((kind?.fields || []).map((f) => [f.name, f.type]));
   const extras = Object.entries(item.fields || {})
-    .filter(([k, v]) => v !== null && v !== "" && v !== false && types[k] !== "file" && k !== groupedBy)
+    .filter(([k, v]) => v !== null && v !== "" && v !== false && types[k] !== "file" && types[k] !== "document" && k !== groupedBy)
     .map(([k, v]) => k === groupFieldOf(kind)?.name
       ? h("span", { class: "tag plain cat" }, optionMark(groupFieldOf(kind), v), v)
       : h("span", { class: "tag plain" }, v === true ? k : `${k}：${v}`));
@@ -175,10 +198,11 @@ function itemRow(item, { showKind = false, groupedBy = null } = {}) {
         showTab();
       },
     }),
-    // An item with a file opens the reading screen; the sheet is one tap further.
-    h("div", { class: "main open", onclick: () => (file ? (location.hash = `#read/${item.id}`) : openSheet(item)) },
+    // An item with a file or a document opens its screen; the sheet is one tap further.
+    h("div", { class: "main open", onclick: () => (href ? (location.hash = href) : openSheet(item)) },
       h("span", { class: "title" }, item.pinned ? h("span", { class: "pin", "aria-label": "ピン" }, "★ ") : null, item.title,
-        file ? h("span", { class: "tag kind-of" }, file.endsWith(".pdf") ? "PDF" : "HTML") : null),
+        file ? h("span", { class: "tag kind-of" }, fileWord(file)) : null,
+        !file && href ? h("span", { class: "tag kind-of" }, "文書") : null),
       h("div", { class: "sub" },
         showKind && kind ? h("span", { class: "tag" }, kind.name) : null,
         file && fileDate(item) ? h("span", {}, `${fileDate(item)}更新`) : null,
@@ -271,8 +295,9 @@ async function renderToday() {
   fill($("open-tasks"), tasks.map((i) => itemRow(i)), "未完了のタスクはありません");
   // Shown only when some kind has a file field
   const fileKind = activeKinds().find((k) => k.fields.some((f) => f.type === "file"));
-  $("reading-panel").hidden = !fileKind;
-  fill($("reading"), today.reading.map((i) => itemRow(i, { showKind: activeKinds().filter((k) => k.fields.some((f) => f.type === "file")).length > 1 })), "まだ資料はありません");
+  const readKinds = activeKinds().filter((k) => k.fields.some((f) => f.type === "file" || f.type === "document"));
+  $("reading-panel").hidden = !readKinds.length;
+  fill($("reading"), today.reading.map((i) => itemRow(i, { showKind: readKinds.length > 1 })), "まだ資料はありません");
   $("reading-all").href = fileKind ? `#list/${encodeURIComponent(fileKind.id)}` : "#list";
   // Jump straight to one 分類's card in the list
   const groupField = groupFieldOf(fileKind);
@@ -365,6 +390,7 @@ async function renderList() {
     toast(kind.main ? "ほかの種類に移しました" : "よく使う種類にしました");
     renderList();
   };
+  $("kind-upload").hidden = !kind.fields.some((x) => x.type === "file");
   $("cat-landing").hidden = !showLanding;
   $("list-panel").hidden = showLanding;
 
@@ -410,7 +436,7 @@ function renderCatLanding(kind, f, items, kindHref) {
     },
       h("div", { class: "cat-head" }, mark, h("span", { class: "cat-name" }, o || `${f.name}なし`), h("span", { class: "count" }, `${g.length}件`)),
       h("ul", { class: "cat-peek" }, ...g.slice(0, 3).map((i) => h("li", {},
-        h("a", { href: fileOf(i) ? `#read/${i.id}` : href, onclick: (e) => e.stopPropagation() }, i.pinned ? "★ " : "", i.title),
+        h("a", { href: openHref(i) || href, onclick: (e) => e.stopPropagation() }, i.pinned ? "★ " : "", i.title),
         fileDate(i) ? h("span", { class: "peek-date" }, fileDate(i)) : null))),
       g.length > 3 ? h("div", { class: "cat-more" }, `ほか${g.length - 3}件`) : null,
       h("span", { class: "go", "aria-hidden": "true" }, "→"));
@@ -481,8 +507,38 @@ async function addItem(ev) {
   // added inside one 分類: the new item belongs to it
   const f = groupFieldOf(kindById(state.kind));
   const fields = f && state.group ? { [f.name]: state.group } : {};
-  await api("/api/items", { method: "POST", body: { kind: state.kind, title, fields } });
+  const item = await api("/api/items", { method: "POST", body: { kind: state.kind, title, fields } });
   input.value = "";
+  // a new document opens in the editor
+  if (docFieldOf(kindById(state.kind))) location.hash = `#doc/${item.id}`;
+  else renderList();
+}
+
+// Files the user picked or dropped in a kind with a file field: each becomes
+// an item titled after the file, in the 分類 on screen, dated by the file's
+// last change. The same API as add_file, so agents can do it too.
+async function uploadFiles(files) {
+  const kind = kindById(state.kind);
+  const ff = kind?.fields.find((x) => x.type === "file");
+  if (!ff || !files.length) return;
+  const g = groupFieldOf(kind);
+  let added = 0;
+  for (const file of files) {
+    toast(`${file.name} を上げています…`);
+    const res = await fetch(`/api/files?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+    if (res.status === 401) return (location.href = "/login");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      toast(`${file.name} は上げられませんでした（${data.detail || res.status}）`);
+      await new Promise((r) => setTimeout(r, 2500));
+      continue;
+    }
+    const fields = { [ff.name]: data.id, ...(g && state.group ? { [g.name]: state.group } : {}) };
+    await api("/api/items", { method: "POST", body: {
+      kind: kind.id, title: file.name.replace(/\.[^.]+$/, ""), fields, file_at: localTime(file.lastModified) } });
+    added++;
+  }
+  if (added) toast(`${added}件を追加しました`);
   renderList();
 }
 
@@ -500,6 +556,10 @@ function fieldInput(f, value) {
     input = h("input", { type: "number", name, step: "any", value: value ?? "" });
   } else if (f.type === "date") {
     input = h("input", { type: "date", name, value: value ?? "" });
+  } else if (f.type === "document") {
+    // written in the editor; the sheet leaves it as it is
+    return h("div", { class: "field" }, h("span", {}, f.name),
+      state.sheetItem ? h("a", { href: `#doc/${state.sheetItem.id}`, onclick: () => $("sheet").close() }, "文書を開く") : "");
   } else if (f.type === "file") {
     // Files are uploaded by agents; the sheet only keeps the value and links to it.
     return h("div", { class: "field" }, h("span", {}, f.name),
@@ -590,6 +650,7 @@ async function renderRead(itemId) {
   if (file.endsWith(".pdf")) frame.removeAttribute("sandbox");
   else frame.setAttribute("sandbox", "allow-scripts allow-popups allow-popups-to-escape-sandbox");
   $("read-open").href = `/files/${file}`;
+  $("read-download").href = `/files/${file}?download=1`;
   if (frame.getAttribute("src") !== `/files/${file}`) frame.src = `/files/${file}`;
 }
 
@@ -660,6 +721,116 @@ window.addEventListener("message", (e) => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") savePageState(true);
 });
+
+// ── document editor ──────────────────────────────────────────────────────────
+
+// The text is Markdown, saved into the item's document field a moment after
+// typing stops; the page on the right is made by the server from what was
+// saved, the same page that is printed and exported as Word.
+async function renderDoc(itemId) {
+  const item = await api(`/api/items/${encodeURIComponent(itemId)}`);
+  const f = docFieldOf(kindById(item.kind_id));
+  if (!f) return toast("この項目は文書ではありません");
+  state.docItem = item;
+  state.docField = f.name;
+  $("doc-back").href = state.from || "#list";
+  $("doc-title").textContent = item.title;
+  $("doc-detail").onclick = () => openSheet(item);
+  const ta = $("doc-text");
+  ta.value = item.fields?.[f.name] || "";
+  $("doc-state").textContent = "";
+  countDoc();
+  api(`/api/items/${item.id}/opened`, { method: "POST" }).catch(() => {});
+  showDocPage();
+  if (matchMedia("(pointer:fine)").matches) ta.focus();
+}
+
+function showDocPage() {
+  if (state.docItem) $("doc-frame").src = `/api/items/${state.docItem.id}/document?v=${Date.now()}`;
+}
+
+function countDoc() {
+  // 字数 as reports count it: without spaces and line breaks
+  $("doc-count").textContent = `${$("doc-text").value.replace(/\s/g, "").length}字`;
+}
+
+let docTimer;
+async function saveDoc() {
+  clearTimeout(docTimer);
+  const item = state.docItem;
+  const text = $("doc-text").value;
+  if (!item || text === (item.fields?.[state.docField] || "")) return;
+  $("doc-state").textContent = "保存中…";
+  try {
+    const saved = await api(`/api/items/${item.id}`, { method: "PATCH", body: { fields: { [state.docField]: text } } });
+    if (state.docItem?.id === saved.id) {
+      state.docItem = saved;
+      showDocPage();
+    }
+    $("doc-state").textContent = "保存しました";
+  } catch {
+    $("doc-state").textContent = "保存できませんでした";
+  }
+}
+
+function docChanged() {
+  $("doc-state").textContent = "";
+  countDoc();
+  clearTimeout(docTimer);
+  docTimer = setTimeout(saveDoc, 1200);
+}
+
+// Edits go through insertText so that ⌘Z still undoes them.
+function replaceRange(ta, start, end, text, selStart, selEnd) {
+  ta.focus();
+  ta.setSelectionRange(start, end);
+  if (!document.execCommand("insertText", false, text)) ta.setRangeText(text, start, end);
+  ta.setSelectionRange(selStart ?? start + text.length, selEnd ?? selStart ?? start + text.length);
+  docChanged();
+}
+
+// A mark at the start of each selected line (見出し, 箇条書き, 番号, 引用);
+// pressing it again on lines that have it takes it off.
+const LINE_MARK = /^(#{1,6} |[-*] |\d+\. |> )/;
+function markLines(prefix) {
+  const ta = $("doc-text");
+  const v = ta.value;
+  const start = v.lastIndexOf("\n", ta.selectionStart - 1) + 1;
+  let end = v.indexOf("\n", ta.selectionEnd);
+  if (end < 0) end = v.length;
+  const lines = v.slice(start, end).split("\n");
+  const off = lines.every((l) => l.startsWith(prefix) || (prefix === "1. " && /^\d+\. /.test(l)));
+  let n = 0;
+  const out = lines.map((l) => {
+    const bare = l.replace(LINE_MARK, "");
+    if (off) return bare;
+    if (!bare.trim() && lines.length > 1) return l;
+    return (prefix === "1. " ? `${++n}. ` : prefix) + bare;
+  }).join("\n");
+  replaceRange(ta, start, end, out, start, start + out.length);
+}
+
+function wrapSelection(mark) {
+  const ta = $("doc-text");
+  const [a, b] = [ta.selectionStart, ta.selectionEnd];
+  const sel = ta.value.slice(a, b);
+  replaceRange(ta, a, b, mark + sel + mark, a + mark.length, a + mark.length + sel.length);
+}
+
+function insertTable() {
+  const ta = $("doc-text");
+  const a = ta.selectionStart;
+  const before = ta.value.slice(0, a);
+  const lead = !before || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  const table = `${lead}| 項目 | 内容 |\n| --- | --- |\n|  |  |\n`;
+  replaceRange(ta, a, ta.selectionEnd, table, a + lead.length + 2, a + lead.length + 4);
+}
+
+function followScroll() {
+  const ta = $("doc-text");
+  const r = ta.scrollTop / Math.max(1, ta.scrollHeight - ta.clientHeight);
+  $("doc-frame").contentWindow?.postMessage({ zzzScroll: r }, "*");
+}
 
 // ── review ───────────────────────────────────────────────────────────────────
 
@@ -820,6 +991,56 @@ window.addEventListener("scroll", placeKindNav, { passive: true });
 window.addEventListener("resize", placeKindNav);
 
 // ── wiring ───────────────────────────────────────────────────────────────────
+
+$("doc-text").addEventListener("input", docChanged);
+$("doc-text").addEventListener("blur", saveDoc);
+$("doc-text").addEventListener("scroll", followScroll, { passive: true });
+$("doc-frame").addEventListener("load", followScroll);
+$("doc-text").addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "b") { e.preventDefault(); wrapSelection("**"); }
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); saveDoc(); }
+});
+$("doc-tools").addEventListener("mousedown", (e) => e.target.closest("button") && e.preventDefault()); // keep the selection
+$("doc-tools").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.line) markLines(b.dataset.line);
+  if (b.dataset.wrap) wrapSelection(b.dataset.wrap);
+  if (b.dataset.insert === "table") insertTable();
+});
+$("doc-mode").addEventListener("click", () => {
+  const on = $("doc-body").classList.toggle("preview");
+  $("doc-mode").textContent = on ? "書く" : "見る";
+});
+$("doc-docx").addEventListener("click", async () => {
+  await saveDoc();
+  if (state.docItem) location.href = `/api/items/${state.docItem.id}/document.docx`;
+});
+$("doc-print").addEventListener("click", async () => {
+  // opened before saving: a window opened after a wait is blocked as a pop-up
+  const w = window.open("", "_blank");
+  await saveDoc();
+  if (w && state.docItem) w.location.href = `/api/items/${state.docItem.id}/document?print=1`;
+});
+$("kind-upload").addEventListener("click", () => $("upload-input").click());
+$("upload-input").addEventListener("change", (e) => {
+  uploadFiles([...e.target.files]);
+  e.target.value = "";
+});
+// Files dragged onto a kind with a file field (PC)
+const canDrop = (e) => currentTab() === "list" && !$("kind-upload").hidden && e.dataTransfer?.types.includes("Files");
+document.addEventListener("dragover", (e) => {
+  if (!canDrop(e)) return;
+  e.preventDefault();
+  $("kind-view").classList.add("dropping");
+});
+document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) $("kind-view").classList.remove("dropping"); });
+document.addEventListener("drop", (e) => {
+  $("kind-view").classList.remove("dropping");
+  if (!canDrop(e)) return;
+  e.preventDefault();
+  uploadFiles([...e.dataTransfer.files]);
+});
 
 $("reload").addEventListener("click", reload);
 $("read-reload").addEventListener("click", reload);

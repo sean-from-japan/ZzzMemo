@@ -235,6 +235,7 @@ dialog h3{margin:0;font-size:1.05rem}
 /* Reading screen: only a back link, the title and the file, as in the class app */
 body.reading header.top{display:none}
 #read.on{display:grid;grid-template-rows:auto minmax(0,1fr);height:100vh;height:100dvh}
+#doc.on{display:grid;grid-template-rows:auto auto minmax(0,1fr);height:100vh;height:100dvh}
 .bar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;padding:8px 20px;padding-top:calc(8px + env(safe-area-inset-top));border-bottom:1px solid var(--line);font-size:.9rem}
 .bar b{font-size:1rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .bar a{text-decoration:none}
@@ -251,6 +252,28 @@ body.reading header.top{display:none}
 .bar .acts button[aria-pressed="true"]{font-weight:700}
 .pin{color:var(--warn)}
 @media (max-width:640px){.bar{padding-left:16px;padding-right:16px}.bar b{flex-basis:calc(100% - 80px)}}
+
+/* Document editor: the text on the left, the finished page on the right;
+   on a phone one at a time, switched with 見る／書く */
+.tb{display:flex;gap:4px;flex-wrap:wrap;align-items:center;padding:6px 16px;border-bottom:1px solid var(--line);background:var(--side)}
+.tb button{border:1px solid transparent;background:none;border-radius:8px;min-height:32px;padding:0 10px;cursor:pointer;font-size:.85rem;color:var(--fg)}
+.tb button:hover{background:var(--raise);border-color:var(--line)}
+.tb .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.tb .count{margin-left:auto;font-size:.8rem;color:var(--faint);font-variant-numeric:tabular-nums}
+.doc-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);min-height:0}
+.doc-body textarea{border:0;outline:none;resize:none;background:var(--bg);padding:24px 28px;font:16px/1.85 var(--sans);min-height:0;border-right:1px solid var(--line)}
+#doc-mode{display:none}
+@media (max-width:860px){
+  .doc-body{grid-template-columns:minmax(0,1fr)}
+  .doc-body textarea{padding:16px 18px;border-right:0}
+  .doc-body:not(.preview) .frame{display:none}
+  .doc-body.preview textarea{display:none}
+  #doc-mode{display:inline}
+}
+.bar .state{color:var(--faint);font-size:.8rem}
+.drop-hint{display:none}
+#kind-view.dropping{outline:2px dashed var(--accent);outline-offset:8px;border-radius:12px}
+#kind-view.dropping .drop-hint{display:block;position:fixed;left:50%;top:40%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:12px 20px;border-radius:12px;z-index:30;pointer-events:none}
 
 #toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 18px;border-radius:12px;font-size:.9rem;max-width:calc(100vw - 32px);display:none;z-index:50;box-shadow:var(--shadow)}
 </style>
@@ -323,8 +346,12 @@ body.reading header.top{display:none}
           <a class="back" href="#list" id="kind-back" aria-label="種類を選び直す">←</a>
           <h1 id="list-title">一覧</h1>
           <button class="icon-btn" type="button" id="kind-main-toggle"></button>
+          <button class="btn small" type="button" id="kind-upload" hidden title="PDF・画像・Word・Markdown・テキスト・HTML（25MBまで）。ここにドラッグしても追加できます">＋ ファイル</button>
+          <input type="file" id="upload-input" multiple hidden
+            accept=".pdf,.html,.htm,.docx,.md,.txt,.png,.jpg,.jpeg,.gif,.webp,application/pdf,image/png,image/jpeg,image/gif,image/webp">
         </div>
       </div>
+      <div class="drop-hint">離すと追加します</div>
       <div id="cat-landing" hidden></div>
       <div class="list-wrap" id="list-panel">
         <div class="panel">
@@ -377,6 +404,7 @@ body.reading header.top{display:none}
         <button type="button" id="read-memo" aria-pressed="false">メモ</button>
         <button type="button" id="read-detail">詳細</button>
         <a id="read-open" target="_blank" rel="noopener">別のタブで開く</a>
+        <a id="read-download">ダウンロード</a>
       </span>
     </div>
     <div class="read-body" id="read-body">
@@ -385,6 +413,35 @@ body.reading header.top{display:none}
         <div class="memo-head"><b>メモ</b><span id="memo-state"></span></div>
         <textarea id="memo-text" aria-label="この資料のメモ" placeholder="読みながら書いたことは自動で保存されます"></textarea>
       </aside>
+    </div>
+  </section>
+
+  <section class="view" id="doc">
+    <div class="bar">
+      <a href="#list" id="doc-back">← 戻る</a>
+      <b id="doc-title"></b>
+      <span class="acts">
+        <span class="state" id="doc-state"></span>
+        <button type="button" id="doc-mode">見る</button>
+        <button type="button" id="doc-docx" title="Wordのファイル（.docx）として保存します">Word</button>
+        <button type="button" id="doc-print" title="印刷の画面で「PDFとして保存」を選びます">PDF・印刷</button>
+        <button type="button" id="doc-detail">詳細</button>
+      </span>
+    </div>
+    <div class="tb" id="doc-tools">
+      <button type="button" data-line="# " title="大見出し">見出し</button>
+      <button type="button" data-line="## " title="中見出し">小見出し</button>
+      <span class="sep"></span>
+      <button type="button" data-wrap="**" title="太字（⌘B）"><b>太字</b></button>
+      <button type="button" data-line="- " title="箇条書き">・箇条書き</button>
+      <button type="button" data-line="1. " title="番号付き">1. 番号</button>
+      <button type="button" data-line="> " title="引用">引用</button>
+      <button type="button" data-insert="table" title="表を入れる">表</button>
+      <span class="count" id="doc-count"></span>
+    </div>
+    <div class="doc-body" id="doc-body">
+      <textarea id="doc-text" aria-label="文書" placeholder="ここに書きます。見出しや箇条書きは上のボタンで付けられます。書いた内容は自動で保存されます" spellcheck="false"></textarea>
+      <iframe class="frame" id="doc-frame" title="仕上がり" sandbox="allow-scripts"></iframe>
     </div>
   </section>
 </main>

@@ -17,7 +17,8 @@ ZzzMemo は、人が1行ずつ書き、AIエージェントが後から仕分け
 | `web/deps.py` | 認証の設定とセッショントークン |
 | `web/routers/api.py` | REST API と、本人／エージェントで許す操作の区別 |
 | `web/static/` | `index.html`（CSS込み）、`app.js`、`manifest.json`、`sw.js`（キャッシュしない）、`slide_paging.js`（資料のHTMLに埋め込むスライド送り）、`page_storage.js`（資料のHTMLの先頭に埋め込む `localStorage` の代わり） |
-| `mcp_server.py` | エージェント用の19ツール（`sync_folder` は手元のフォルダの資料をまとめて入れる。送った内容は `~/.local/state/zzzmemo/sync.json` に覚える）。引数なしでMCPサーバー、`call <tool> '<json>'` でCLI |
+| `core/documents.py` | Word・Markdown・テキストのファイルを読むページにする。アプリで書いた文書（Markdown）をページとWordのファイルにする |
+| `mcp_server.py` | エージェント用の20ツール（`sync_folder` は手元のフォルダの資料をまとめて入れる。送った内容は `~/.local/state/zzzmemo/sync.json` に覚える）。引数なしでMCPサーバー、`call <tool> '<json>'` でCLI |
 | `migrate_v1.py` | 第1版の表から一度だけ移す（本番では2026-11-19に実行済み） |
 | `tests/` | `python -m pytest tests` |
 
@@ -44,6 +45,8 @@ fly secrets list --app zzzmemo   # 名前だけ出る
 - **列を足すときは `_ADDED_COLS` に書く。** `init()` が既存のDBに列を足し、取り消しは古い記録に無い列を既定値で補う。書かないと、それまでの変更が取り消せなくなる
 - **エージェントは種類を変えられないが、変更を提案できる**（`POST /api/kinds/{id}/proposal`、`kinds.proposed_fields`）。承認すると `fields` に入る
 - **提案の承認と却下は画面とCLIで同じAPI**（`POST /api/kinds/{id}/decision`、ツールは `list_proposals`・`decide_proposal`）。エージェントは本人に頼まれたときだけ承認する。記録には決めた者（`human` かエージェントの名前）が残る。画面でしかできない操作を新しく作らない（2026-11-21の本人の指示）
+- **ファイルはHTML・PDF・画像（PNG・JPEG・GIF・WebP）・Word（.docx）・Markdown・テキストで25MBまで。** 拡張子と中身の先頭を照らし、合わなければ断る。Word・Markdown・テキストは `/files/{id}` で読むページに変えて返し（CSPの `sandbox` でスクリプトなし）、`?download=1` で元のファイルを返す。本人は一覧の「＋ ファイル」かドラッグで上げ、エージェントは `add_file` で上げる（同じAPI）
+- **アプリで書く文書は、種類の `document` 型の項目に入れる**（Markdown、1MBまで）。行を押すと `#doc/<項目のid>` の書く画面が開き、保存した内容から作ったページを横に出す。PDFはブラウザの印刷で作り、Wordは `GET /api/items/{id}/document.docx`（ツールは `export_document`）。生のHTMLは文字として出すので、文書にスクリプトは入らない
 - **ファイルの項目の日付は `items.file_at`。** `add_file` が上げる前のファイルの更新日時を入れ、画面は「8月29日更新」と出す。項目の作成日（上げた日）とは別
 - **種類はデータ。** 画面とAPIの検査は `kinds.fields` の定義から作る。種類ごとのコードを足さない
 - **一覧は2つの画面。** `#list` は種類を大きなカードで選ぶ画面で、`kinds.main` が1のもの（よく使う種類）を大きく、残りを「ほかの種類」に小さく出す。`#list/<種類のid>` がその種類の画面で、ファイルの項目を持つ種類では分類を大きなカードで選ぶ画面、それ以外は一覧になる。`#list/<種類のid>/<分類>` がその分類の一覧（`*` はすべて、`_none` は分類なし）。深い画面へは右から、戻るときは左から滑らせる。本人だけが一覧のタイトル横の☆で「よく使う」を切り替えられる。`main` の列を足したときに1回だけ、タスクとファイルの項目を持つ種類を1にした

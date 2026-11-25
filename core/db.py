@@ -7,14 +7,18 @@ There is no in-memory copy: each call reads SQLite.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
 import sqlite3
 import uuid
+import zipfile
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+from core import documents
 
 # ZZZMEMO_DB points a local dev server at a copy (see dev.py); files live beside it.
 DB_FILE = Path(os.environ.get("ZZZMEMO_DB") or Path(__file__).parent.parent / "data" / "qcatch.db")
@@ -22,14 +26,28 @@ DB_FILE = Path(os.environ.get("ZZZMEMO_DB") or Path(__file__).parent.parent / "d
 ENTRY_STATES = {"new", "done", "review"}
 KIND_STATUSES = {"active", "proposed", "rejected"}
 ITEM_STATUSES = {"open", "done", "trashed"}
-FIELD_TYPES = {"text", "date", "choice", "number", "bool", "file"}
+# "document": a text written in the app's editor (Markdown), shown as a page
+# and exported as a Word file
+FIELD_TYPES = {"text", "date", "choice", "number", "bool", "file", "document"}
+MAX_DOCUMENT_BYTES = 1024 * 1024
 
 # Files (reports, scripts) live next to the DB, not in it: the change log keeps
 # whole rows, so a file inside a row would be copied into the log on every edit.
 # A stored file is never rewritten; a new version is a new file id.
-FILE_TYPES = {"html": "text/html; charset=utf-8", "pdf": "application/pdf"}
-MAX_FILE_BYTES = 10 * 1024 * 1024
-_FILE_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(html|pdf)$")
+FILE_TYPES = {
+    "html": "text/html; charset=utf-8", "pdf": "application/pdf",
+    "png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "md": "text/markdown; charset=utf-8", "txt": "text/plain; charset=utf-8",
+}
+# Word, Markdown and text files are shown as pages made from them (core/documents.py)
+PAGE_TYPES = {"docx", "md", "txt"}
+_SAME_TYPE = {"htm": "html", "jpeg": "jpg", "markdown": "md"}
+# first bytes of each binary type, so a renamed file is refused
+_MAGIC = {"pdf": (b"%PDF-",), "png": (b"\x89PNG\r\n\x1a\n",), "jpg": (b"\xff\xd8\xff",),
+          "gif": (b"GIF87a", b"GIF89a"), "docx": (b"PK\x03\x04",)}
+MAX_FILE_BYTES = 25 * 1024 * 1024
+_FILE_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(" + "|".join(FILE_TYPES) + r")$")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS entries (
@@ -417,6 +435,10 @@ def _check_values(kind: dict, values: dict) -> None:
         if t == "file" and isinstance(v, str):
             file_path(v)
             ok = True
+        if t == "document" and isinstance(v, str):
+            if len(v.encode()) > MAX_DOCUMENT_BYTES:
+                raise Invalid(f"document '{name}' is larger than 1 MB")
+            ok = True
         if not ok:
             raise Invalid(f"bad value for field '{name}' ({t}): {v!r}")
 
@@ -458,6 +480,17 @@ def list_items(kind: str | None = None, status: str | None = "open", q: str | No
 def get_item(item_id: str) -> dict:
     with _tx() as conn:
         return _get(conn, "items", item_id)
+
+
+def item_document(item_id: str) -> tuple[str, str]:
+    """The title and the text of an item's written document."""
+    with _tx() as conn:
+        item = _get(conn, "items", item_id)
+        kind = _get(conn, "kinds", item["kind_id"])
+    f = next((f for f in kind["fields"] if f["type"] == "document"), None)
+    if f is None:
+        raise Invalid(f"kind '{kind['name']}' has no document field")
+    return item["title"], item["fields"].get(f["name"]) or ""
 
 
 def _check_time(s: str | None) -> None:
@@ -529,10 +562,9 @@ def _files_dir() -> Path:
 
 
 def save_file(data: bytes, filename: str) -> str:
-    """Store an HTML or PDF file and return its new id (uuid + extension)."""
+    """Store a file and return its new id (uuid + extension)."""
     ext = Path(filename).suffix.lower().lstrip(".")
-    if ext == "htm":
-        ext = "html"
+    ext = _SAME_TYPE.get(ext, ext)
     if ext not in FILE_TYPES:
         raise Invalid(f"only {', '.join(sorted(FILE_TYPES))} files are accepted")
     if not data:
@@ -540,8 +572,23 @@ def save_file(data: bytes, filename: str) -> str:
     if len(data) > MAX_FILE_BYTES:
         raise Invalid(f"file is larger than {MAX_FILE_BYTES // (1024 * 1024)} MB")
     head = data[:2048].lstrip(b"\xef\xbb\xbf \t\r\n").lower()
-    if ext == "pdf" and not data.startswith(b"%PDF-"):
-        raise Invalid("not a PDF file")
+    if ext in _MAGIC and not data.startswith(_MAGIC[ext]):
+        raise Invalid(f"not a {ext} file")
+    if ext == "webp" and not (data[:4] == b"RIFF" and data[8:12] == b"WEBP"):
+        raise Invalid("not a webp file")
+    if ext == "docx":
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                z.getinfo("word/document.xml")
+        except (zipfile.BadZipFile, KeyError):
+            raise Invalid("not a Word (.docx) file")
+    if ext in ("md", "txt"):
+        if b"\x00" in data:
+            raise Invalid("not a text file (UTF-8 or Shift_JIS)")
+        try:
+            documents.decode_text(data)
+        except UnicodeDecodeError:
+            raise Invalid("not a text file (UTF-8 or Shift_JIS)")
     if ext == "html" and not head.startswith((b"<!doctype html", b"<html")):
         raise Invalid("not an HTML document (must start with <!DOCTYPE html> or <html>)")
     file_id = f"{uuid.uuid4()}.{ext}"
@@ -603,9 +650,13 @@ def set_page_state(item_id: str, data: dict) -> None:
 
 
 def reading(limit: int = 6) -> list[dict]:
-    """Open items that hold a file: pinned first, then the most recently
-    opened, then the newest. Each row carries `opened_at` (or None)."""
-    file_field = {k["id"]: f["name"] for k in list_kinds("active") for f in k["fields"] if f["type"] == "file"}
+    """Open items that hold a file or a written document: pinned first, then
+    the most recently opened, then the newest. Each row carries `opened_at`."""
+    file_field = {}
+    for k in list_kinds("active"):
+        f = next((f for f in k["fields"] if f["type"] in ("file", "document")), None)
+        if f:
+            file_field[k["id"]] = f["name"]
     ids = list(file_field)
     if not ids:
         return []

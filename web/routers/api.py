@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import urllib.parse
 from pathlib import Path
 from typing import Any, Literal, Optional
 
@@ -20,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from core import db
+from core import db, documents
 from web import deps
 
 router = APIRouter()
@@ -285,13 +286,35 @@ async def post_file(request: Request, name: str):
     return {"id": file_id, "url": f"/files/{file_id}"}
 
 
+# Pages made from Word, Markdown and text files, and written documents, need
+# no scripts of their own except the two lines below.
+_PAGE_HEADERS = {**_HTML_HEADERS, "Content-Security-Policy": "sandbox"}
+_PLAIN_HEADERS = {"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache"}
+
+
+def _attachment(name: str) -> dict:
+    return {**_PLAIN_HEADERS, "Content-Disposition": f"attachment; filename*=UTF-8''{urllib.parse.quote(name)}"}
+
+
+def _title_of(file_id: str) -> str:
+    item_id = db.item_for_file(file_id)
+    return db.get_item(item_id)["title"] if item_id else file_id
+
+
+# /files/{id} shows the file; ?download=1 gives the stored file as it is,
+# named after its item, e.g. the original .docx of a Word file shown as a page.
 @router.get("/files/{file_id}")
-def get_file(file_id: str):
+def get_file(file_id: str, download: bool = False):
     path = _call(db.file_path, file_id)
     ext = path.suffix.lstrip(".")
-    if ext == "pdf":
+    if download:
         return FileResponse(str(path), media_type=db.FILE_TYPES[ext],
-                            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache"})
+                            headers=_attachment(f"{_title_of(file_id)}.{ext}"))
+    if ext in db.PAGE_TYPES:
+        return Response(documents.file_page(path.read_bytes(), ext, _title_of(file_id)),
+                        media_type="text/html; charset=utf-8", headers=_PAGE_HEADERS)
+    if ext != "html":  # PDF and images: Chrome shows neither inside a sandbox
+        return FileResponse(str(path), media_type=db.FILE_TYPES[ext], headers=_PLAIN_HEADERS)
     data = path.read_bytes()
     i = data.lower().rfind(b"</body>")
     data = data[:i] + _PAGER + data[i:] if i >= 0 else data + _PAGER
@@ -300,6 +323,29 @@ def get_file(file_id: str):
     at = m.end() if m else 0
     data = data[:at] + _storage_script(file_id) + data[at:]
     return Response(data, media_type=db.FILE_TYPES[ext], headers=_HTML_HEADERS)
+
+
+# A written document as a page. The editor's preview follows the text's
+# scroll position (a message from the app); ?print=1 opens the print dialog,
+# where the browser saves it as a PDF.
+_FOLLOW = ('<script>addEventListener("message",function(e){var r=e.data&&e.data.zzzScroll;'
+           'if(typeof r==="number")scrollTo(0,r*(document.documentElement.scrollHeight-innerHeight))});</script>')
+_PRINT = '<script>addEventListener("load",function(){print()});</script>'
+
+
+@router.get("/api/items/{item_id}/document")
+def get_document(item_id: str, print: bool = False):
+    title, text = _call(db.item_document, item_id)
+    headers = {**_HTML_HEADERS, "Content-Security-Policy": "sandbox allow-scripts allow-modals"}
+    return Response(documents.page(title, documents.markdown_html(text), _PRINT if print else _FOLLOW),
+                    media_type="text/html; charset=utf-8", headers=headers)
+
+
+@router.get("/api/items/{item_id}/document.docx")
+def get_document_docx(item_id: str):
+    title, text = _call(db.item_document, item_id)
+    return Response(documents.docx_bytes(title, text), media_type=db.FILE_TYPES["docx"],
+                    headers=_attachment(f"{title}.docx"))
 
 
 # ── today / log ───────────────────────────────────────────────────────────────

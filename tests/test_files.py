@@ -80,7 +80,7 @@ def test_pdf_is_served_as_is(client):
 
 
 def test_wrong_files_are_refused(client, monkeypatch):
-    assert upload(client, HTML, "notes.txt").status_code == 400
+    assert upload(client, HTML, "notes.svg").status_code == 400
     assert upload(client, b"", "a.html").status_code == 400
     assert upload(client, b"hello", "a.html").status_code == 400
     assert upload(client, HTML, "a.pdf").status_code == 400

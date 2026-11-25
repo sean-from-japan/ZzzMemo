@@ -6,3 +6,8 @@ pydantic>=2.0.0
 
 # "Sign in with Google" (email check only)
 google-auth-oauthlib>=1.2.0
+
+# Word, Markdown and text files shown as pages; documents exported as Word
+mammoth>=1.8
+markdown-it-py>=3.0
+python-docx>=1.1

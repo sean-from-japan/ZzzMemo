@@ -53,8 +53,9 @@ def tool(fn):
 
 
 def _req(method: str, path: str, body: Optional[dict] = None, query: Optional[dict] = None,
-         raw: Optional[bytes] = None) -> Any:
-    """Call the ZzzMemo HTTP API and return parsed JSON. `raw` sends bytes as is."""
+         raw: Optional[bytes] = None, binary: bool = False) -> Any:
+    """Call the ZzzMemo HTTP API and return parsed JSON. `raw` sends bytes as
+    is; `binary` returns the response bytes (a downloaded file)."""
     url = BASE_URL + urllib.parse.quote(path)
     if query:
         q = {k: v for k, v in query.items() if v is not None}
@@ -67,7 +68,9 @@ def _req(method: str, path: str, body: Optional[dict] = None, query: Optional[di
         headers["X-Api-Key"] = API_KEY
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            if binary:
+                return resp.read()
             raw = resp.read().decode("utf-8")
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
@@ -294,9 +297,11 @@ def _inline_assets(html: str, base: str) -> str:
 @tool
 def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict] = None,
              body: str = "") -> str:
-    """Upload a local HTML or PDF file (max 10 MB) the user should read, such
-    as a research report or an English script, and file it as an item of a
-    kind with a "file" field. If an open item of that kind already has this
+    """Upload a local file (max 25 MB) the user should read, such as a research
+    report or an English script, and file it as an item of a kind with a
+    "file" field. Accepted: HTML, PDF, PNG/JPEG/GIF/WebP images, Word (.docx),
+    Markdown (.md) and plain text (.txt); Word, Markdown and text are shown as
+    pages made from them, and the original can be downloaded. If an open item of that kind already has this
     title, its file is replaced (the old file stays and the change can be
     undone); otherwise a new item is created. HTML runs sandboxed and is shown
     in the app's reading screen; `.slide` blocks get previous/next buttons.
@@ -321,6 +326,19 @@ def add_file(path: str, title: str, kind: str = "資料", fields: Optional[dict]
     return _out({"replaced": False, "item": _item(item)})
 
 
+@tool
+def export_document(item_id: str, path: str) -> str:
+    """Save an item's written document (a kind with a "document" field, written
+    in the app's editor as Markdown) as a Word file (.docx) at a local path.
+    The same file as the app's Word button. To read or change the text itself,
+    use list_items / update_item with the document field's name."""
+    path = os.path.expanduser(path)
+    data = _req("GET", f"/api/items/{item_id}/document.docx", binary=True)
+    with open(path, "wb") as fh:
+        fh.write(data)
+    return _out({"saved": path, "bytes": len(data)})
+
+
 def _file_kind(kind: str) -> tuple:
     """The active kind named `kind` and the name of its file field."""
     k = next((x for x in _req("GET", "/api/kinds")["kinds"] if kind in (x["id"], x["name"])), None)
@@ -340,7 +358,7 @@ def _file_at(path: str) -> str:
 
 
 def _upload(path: str) -> tuple:
-    """Upload a local HTML or PDF file; return (file id, file_at)."""
+    """Upload a local file; return (file id, file_at)."""
     with open(path, "rb") as fh:
         data = fh.read()
     if path.lower().endswith((".html", ".htm")):
@@ -482,7 +500,8 @@ def propose_kind(name: str, fields: Optional[list] = None) -> str:
     app, or with decide_proposal when the user tells you to), so mark the lines that need it as "review" in the meantime.
     fields: [{"name": "著者", "type": "text"}, {"name": "状態", "type":
     "choice", "options": ["未読", "読了"]}]; types: text, date, choice,
-    number, bool, file (a file uploaded with add_file)."""
+    number, bool, file (a file uploaded with add_file), document (a text
+    written in the app's editor, Markdown; see export_document)."""
     k = _req("POST", "/api/kinds", {"name": name, "fields": fields or []})
     return _out({key: k[key] for key in ("id", "name", "status", "fields")})
 

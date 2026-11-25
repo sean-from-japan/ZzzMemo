@@ -15,16 +15,18 @@ The first version of ZzzMemo had Gemini built in and asked for a category, due d
 - **You** only write lines, as fast as in a paper notebook. No fields to fill in.
 - **An agent** sorts them later, in a batch, when you ask it to (for example a `/zzz` slash command in Claude Code). Nothing needs an LLM in real time, so the server holds no LLM API key.
 - **Kinds are data, not code.** タスク (tasks), メモ (notes), 欲しい物 (wish list) and チェックリスト exist by default. An agent can propose a new kind with its own fields; it becomes usable after you approve it in the app. The screens are generated from the kind definitions, so adding a kind changes no code.
-- **Agents can leave things for you to read.** A kind can have a `file` field holding an HTML or PDF file (up to 10 MB), such as a research report or an English script. Tapping such an item opens a reading screen in the app; an HTML page cut into `.slide` blocks is shown one slide at a time with previous/next buttons. Stored HTML runs in a sandbox with no origin, so its scripts work but cannot read your session cookie or call the API. What a page keeps in `localStorage` (answers in a workbook, ticked boxes) is saved on the server for that item when you use the page in the app's reading screen, and is there again the next time you open it.
+- **Agents can leave things for you to read.** A kind can have a `file` field holding a file of up to 25 MB, such as a research report or an English script: HTML, PDF, an image (PNG, JPEG, GIF, WebP), a Word file (.docx), Markdown or plain text. Word, Markdown and text files are shown as pages made from them, and the original can be downloaded as it is. You can also add files yourself in the app (a button, or drag and drop on a computer). Tapping such an item opens a reading screen in the app; an HTML page cut into `.slide` blocks is shown one slide at a time with previous/next buttons. Stored HTML runs in a sandbox with no origin, so its scripts work but cannot read your session cookie or call the API. What a page keeps in `localStorage` (answers in a workbook, ticked boxes) is saved on the server for that item when you use the page in the app's reading screen, and is there again the next time you open it.
+- **You can write documents in the app.** A kind with a `document` field holds texts written in the app's editor: Markdown with buttons for headings, bold, lists, quotes and tables, the finished page beside it (on a phone, one at a time), and a character count. A document can be printed or saved as a PDF from the browser's print dialog, or downloaded as a Word file.
 - **Every change can be undone.** Each write, by you or an agent, goes to a change log with the row before and after.
 
 ## Screens
 
 | Screen | What it is for |
 |---|---|
-| Today | The capture box and the lines written today (or any earlier day) with their state: new, sorted, or waiting for you. Items due within three days, open tasks, and up to six items with a file: pinned first, then recently opened, then newest. |
+| Today | The capture box and the lines written today (or any earlier day) with their state: new, sorted, or waiting for you. Items due within three days, open tasks, and up to six items with a file or a document: pinned first, then recently opened, then newest. |
 | Lists | One list per kind, with an editor generated from the kind's fields. |
-| Read | Opens an item's file: a back link, the title, reload, pin, memo, details and "open in a new tab", and the file below. The memo is the item's memo text, shown beside the file (below it on a phone) and saved as you type. |
+| Read | Opens an item's file: a back link, the title, reload, pin, memo, details, "open in a new tab" and download, and the file below. The memo is the item's memo text, shown beside the file (below it on a phone) and saved as you type. |
+| Write | Opens an item's document in the editor: Word and PDF buttons, the text and the finished page. |
 | Review | Kinds and changes to kinds (such as more choices for a field) proposed by agents (approve or reject), lines an agent could not decide, and the change log with undo buttons. |
 
 It is a PWA, so it can be added to a phone's home screen. Light and dark themes follow the system.
@@ -46,7 +48,7 @@ The server decides from how the request is authenticated, not from what the agen
 
 ## Tools for agents
 
-`mcp_server.py` exposes 19 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `propose_kind_change`, `list_proposals`, `decide_proposal`, `add_file`, `sync_folder`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server. `sync_folder` brings the HTML and PDF files of a local folder (default `~/myLife/reports`) into 資料: new files become items, changed files replace the file of their item, deleted files mark it done, and unchanged files are skipped, so it is safe to run after every report. A page can set its 分類 with `<meta name="zzzmemo-category" content="お金">`, or stay out with `content="skip"`.
+`mcp_server.py` exposes 20 tools (`list_unsorted`, `sort_entry`, `mark_entry`, `propose_kind`, `propose_kind_change`, `list_proposals`, `decide_proposal`, `add_file`, `sync_folder`, `export_document`, `list_items`, `update_item`, `get_today`, `recent_changes`, `undo_change`, ...). The same tools also run as a plain command with no extra packages, which is how slash commands and Codex can use them without registering an MCP server. `sync_folder` brings the HTML and PDF files of a local folder (default `~/myLife/reports`) into 資料: new files become items, changed files replace the file of their item, deleted files mark it done, and unchanged files are skipped, so it is safe to run after every report. A page can set its 分類 with `<meta name="zzzmemo-category" content="お金">`, or stay out with `content="skip"`.
 
 ```bash
 python mcp_server.py list
@@ -73,10 +75,11 @@ As an MCP server (`pip install mcp`; works with mcp 1.x and 2.x):
 | Endpoint | |
 |---|---|
 | `GET/POST /api/entries`, `PATCH/DELETE /api/entries/{id}` | Lines. POST stores multi-line text as one entry per line. |
-| `GET/POST /api/kinds`, `PATCH/DELETE /api/kinds/{id}` | Kinds and their fields (text, date, choice, number, bool). |
+| `GET/POST /api/kinds`, `PATCH/DELETE /api/kinds/{id}` | Kinds and their fields (text, date, choice, number, bool, file, document). |
 | `GET/POST /api/items`, `GET/PATCH /api/items/{id}` | Items. Field values are checked against the kind. |
 | `GET /api/today` | Today's lines, items due soon, open tasks, kinds awaiting approval. |
-| `POST /api/files?name=<file name>`, `GET /files/{id}` | Upload an HTML or PDF file as the raw request body (returns its id), and read it. Files are never rewritten; a new version is a new id. |
+| `POST /api/files?name=<file name>`, `GET /files/{id}` | Upload a file as the raw request body (returns its id), and read it; `?download=1` gives the stored file as it is. Files are never rewritten; a new version is a new id. |
+| `GET /api/items/{id}/document`, `GET /api/items/{id}/document.docx` | An item's document as a page (`?print=1` opens the print dialog) and as a Word file. |
 | `GET /api/log`, `POST /api/log/{id}/undo` | Change log and undo. Undo is refused if the row changed again afterwards. |
 
 ## Run it
