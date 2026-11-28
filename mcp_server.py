@@ -43,6 +43,9 @@ from typing import Any, Optional
 BASE_URL = os.environ.get("ZZZMEMO_BASE_URL", "https://zzzmemo.fly.dev").rstrip("/")
 API_KEY = os.environ.get("ZZZMEMO_API_KEY", "")
 ACTOR = os.environ.get("ZZZMEMO_ACTOR", "agent")
+# Windows' MIME table has no web fonts, so inlined fonts became application/octet-stream.
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
 
 TOOLS = []
 
